@@ -374,3 +374,41 @@ def test_via_registry_wraps_into_tool_result():
     result = call_tool("semantic_checks", ast=ast, java_code="")
     assert result.success is True
     assert result.data["findings"][0]["check"] == "copybook-unresolved"
+
+
+def test_scale_mismatch_flagged_on_a_later_assignment_than_the_declaration():
+    """The payroll bug: a correct declaration hid a wrong re-assignment.
+
+    Looking only at the first line mentioning the field reported PIC V999
+    as scale 3 from its declaration and never saw ``setScale(2)`` three
+    lines down, so WS-TAX-RATE silently ran as 0.20 instead of 0.200.
+    """
+    var = _var(java_type="BigDecimal", scale=3, java_name="wsTaxRate", pic="V999")
+    ast = _ast(variables=[var])
+    java_code = (
+        "private BigDecimal wsTaxRate = BigDecimal.ZERO.setScale(3, RoundingMode.HALF_UP);\n"
+        'this.wsTaxRate = new BigDecimal("0.200").setScale(2, RoundingMode.HALF_UP);\n'
+    )
+
+    hits = _findings_by_check(semantic_checks(ast, java_code)["findings"], "scale-mismatch")
+
+    assert len(hits) == 1
+    assert "setScale(2)" in hits[0]["message"]
+
+
+def test_numeric_truncation_suggestion_uses_integer_digit_count():
+    """PIC 9(3)V99 keeps 3 integer digits, so the modulus is 10^3, not 10^5."""
+    var = _var(name="WS-AMT", java_type="BigDecimal", java_name="wsAmt",
+               pic="9(3)V99", digits=5, scale=2, length=5)
+    ast = _ast(
+        variables=[var],
+        statements=[{"kind": "MOVE", "raw": "MOVE 1234567.89 TO WS-AMT",
+                     "targets": ["WS-AMT"], "sources": ["1234567.89"], "rounded": False,
+                     "on_size_error": False, "paragraph": "P", "line": 12}],
+    )
+    java_code = "wsAmt = 1234567.89;"
+
+    hits = _findings_by_check(semantic_checks(ast, java_code)["findings"], "numeric-truncation")
+
+    assert len(hits) == 1
+    assert 'new BigDecimal("1000")' in hits[0]["suggestion"]

@@ -190,11 +190,37 @@ def validator_node(state: ConversionState, config: Optional[RunnableConfig] = No
             }
         ))
 
-    return {
+    updates: Dict[str, Any] = {
         "validation": validation_report,
         "retry_feedback": retry_feedback,
         "agent_results": [agent_result],
     }
+
+    # The validator repairs semantic findings deterministically (imports and
+    # helper methods included) before deciding `passed`. When it did, the
+    # patched source is what it validated, so it becomes the code every
+    # downstream consumer sees — CLAUDE.md's "final Java is optimized_code
+    # if non-null" stays true without a second field.
+    patched_code = agent_result.get("result", {}).get("java_code")
+    if patched_code:
+        updates["optimized_code"] = patched_code
+        fixes = agent_result.get("result", {}).get("semantic_fixes", {}) or {}
+        if cb and fixes.get("applied"):
+            cb(Event(
+                type=EventType.AGENT_FINISHED,
+                agent="validator",
+                message=(
+                    f"Applied {len(fixes['applied'])} deterministic semantic fixes "
+                    f"({', '.join(a['check'] for a in fixes['applied'])})"
+                ),
+                data={
+                    "status": "success",
+                    "next_action": next_action,
+                    "semantic_fixes": fixes,
+                },
+            ))
+
+    return updates
 
 
 def documenter_node(state: ConversionState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:

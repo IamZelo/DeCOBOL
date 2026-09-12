@@ -68,6 +68,59 @@ class ValidatorAgent(Agent):
         semantic_res = self.use_tool("semantic_checks", ast=ast, java_code=code_to_check)
         findings: List[Finding] = semantic_res.data.get("findings", []) if semantic_res.success else []
 
+        # 2b. Repair mechanically before spending a retry on the LLM.
+        # Every error-severity check carries its own exact fix (a setScale
+        # argument, a modulo, a String.format), so a round-trip through a 7B
+        # model to apply it is pure risk: it costs one of MAX_RETRIES passes
+        # and the model may regress something else. apply_semantic_fixes
+        # patches what it can — imports and helper declarations included —
+        # and leaves the rest as retry feedback.
+        patched_code: str | None = None
+        fix_summary: Dict[str, Any] = {}
+        compile_failed_first_pass = not (
+            compile_data.get("success", False) or compile_data.get("skipped", False)
+        )
+        # Also run it on a failed compile with no error findings: a missing
+        # `import java.math.RoundingMode;` is a compile error, not a semantic
+        # one, and the import/helper passes repair exactly that.
+        if any(f.get("severity") == "error" for f in findings) or compile_failed_first_pass:
+            tools_called.append("apply_semantic_fixes")
+            fix_res = self.use_tool(
+                "apply_semantic_fixes", java_code=code_to_check, ast=ast, findings=findings,
+            )
+            if fix_res.success and fix_res.data.get("changed"):
+                patched_code = fix_res.data.get("java_code") or None
+                fix_summary = {
+                    "applied": fix_res.data.get("applied", []),
+                    "imports_added": fix_res.data.get("imports_added", []),
+                    "helpers_added": fix_res.data.get("helpers_added", []),
+                }
+            elif not fix_res.success:
+                errors.append({
+                    "stage": "validator",
+                    "kind": "tool_failure",
+                    "message": f"apply_semantic_fixes failed ({fix_res.error}); validating unpatched code.",
+                    "recoverable": True,
+                    "ts": time.time(),
+                })
+
+        # 2c. Re-validate the patched source — the report must describe the
+        # code we are actually handing on, not the draft we threw away.
+        if patched_code:
+            logger.info(
+                "Validator patched %d semantic findings deterministically (imports=%s, helpers=%s)",
+                len(fix_summary.get("applied", [])),
+                fix_summary.get("imports_added"),
+                fix_summary.get("helpers_added"),
+            )
+            code_to_check = patched_code
+            tools_called.append("javac_compile")
+            compile_res = self.use_tool("javac_compile", java_code=code_to_check, class_name=class_name)
+            compile_data = compile_res.data.get("compile", compile_data)
+            tools_called.append("semantic_checks")
+            semantic_res = self.use_tool("semantic_checks", ast=ast, java_code=code_to_check)
+            findings = semantic_res.data.get("findings", []) if semantic_res.success else findings
+
         # 3. Compute counts by severity per CONTRACTS §7
         error_findings = [f for f in findings if f.get("severity") == "error"]
         warning_findings = [f for f in findings if f.get("severity") == "warning"]
@@ -113,6 +166,14 @@ class ValidatorAgent(Agent):
                 if f.get("suggestion"):
                     msg += f"\n  Suggested Fix: {f.get('suggestion')}"
                 feedback_lines.append(msg)
+            if fix_summary.get("applied"):
+                already = ", ".join(
+                    f'[{a["check"]}] on {a["cobol_ref"]}' for a in fix_summary["applied"]
+                )
+                feedback_lines.insert(0, (
+                    "Already fixed deterministically — keep these edits, do not revert them: "
+                    f"{already}. The issues below are the ones still outstanding."
+                ))
             retry_feedback = "\n\n".join(feedback_lines)
             logger.info("Generated retry feedback for attempt %d:\n%s", retry_count + 1, retry_feedback)
 
@@ -131,6 +192,11 @@ class ValidatorAgent(Agent):
         result_payload: Dict[str, Any] = {"validation": validation_report}
         if retry_feedback:
             result_payload["retry_feedback"] = retry_feedback
+        # Additive per CONTRACTS §0: the graph writes this back as the code
+        # downstream stages see. Absent when nothing was patched.
+        if patched_code:
+            result_payload["java_code"] = patched_code
+            result_payload["semantic_fixes"] = fix_summary
 
         return AgentResult(
             agent=self.name,

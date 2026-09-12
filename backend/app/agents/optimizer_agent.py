@@ -17,7 +17,7 @@ from typing import Any, Dict, List
 
 from app.agents.base import Agent, AgentResult
 from app.config import settings
-from app.llm.parsing import extract_json, extract_java_code
+from app.llm.parsing import extract_json, extract_java_code, sanitize_java_source
 from app.orchestrator.state import ConversionState, ErrorDict
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ class OptimizerAgent(Agent):
 
             try:
                 parsed = extract_json(llm_reply)
-                candidate_code = parsed.get("java_code", "")
+                candidate_code = sanitize_java_source(parsed.get("java_code", ""))
                 candidate_changes = parsed.get("changes", [])
             except ValueError:
                 # Small local models often skip the JSON envelope for a full

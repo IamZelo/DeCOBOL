@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from app.agents.base import Agent, AgentResult
 from app.config import settings
-from app.llm.parsing import extract_json, extract_java_code
+from app.llm.parsing import extract_json, extract_java_code, sanitize_java_source
 from app.orchestrator.state import ConversionState, ErrorDict
 
 logger = logging.getLogger(__name__)
@@ -162,7 +162,9 @@ class ConverterAgent(Agent):
 
             try:
                 parsed_json = extract_json(llm_reply)
-                java_code = parsed_json.get("java_code", "")
+                # A well-formed envelope can still carry a fenced or
+                # double-escaped body; normalise before anything compiles it.
+                java_code = sanitize_java_source(parsed_json.get("java_code", ""))
                 if parsed_json.get("class_name"):
                     class_name = parsed_json["class_name"]
                 notes = parsed_json.get("notes", [])

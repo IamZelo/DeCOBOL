@@ -14,4 +14,5 @@ from . import filesystem  # noqa: F401
 from . import java_compiler  # noqa: F401
 from . import java_template  # noqa: F401
 from . import semantic_checks  # noqa: F401
+from . import semantic_fixes  # noqa: F401
 from . import type_mapper  # noqa: F401

@@ -162,3 +162,144 @@ def test_parsing_utilities():
 
     code_block = '```java\npublic class Direct {}\n```'
     assert extract_java_code(code_block) == "public class Direct {}"
+
+
+def test_extract_java_code_salvages_a_malformed_json_envelope():
+    """The failure mode that reached javac as `illegal character: '\\'`.
+
+    A 7B model asked for {"java_code": "..."} routinely forgets to escape a
+    quote inside String.format("%-" + n + "s", v). json.loads then fails, and
+    the old fallback handed the compiler the raw escaped payload — one
+    physical line of literal \\n, with `",  "notes": [...]}` and a stray
+    ``` still attached.
+    """
+    reply = (
+        '```json\n{\n  "class_name": "Payroll",\n'
+        '  "java_code": "public class Payroll {\\n'
+        '    private String name = \\"JANE\\";\\n'
+        '    private static String pad(String v, int n) {\\n'
+        '        return String.format("%-" + n + "s", v);\\n'
+        '    }\\n}",\n'
+        '  "notes": ["mapped COMP-3 to BigDecimal"]\n}\n```'
+    )
+
+    code = extract_java_code(reply)
+
+    assert "\\n" not in code                      # escapes decoded
+    assert code.startswith("public class Payroll {")
+    assert code.rstrip().endswith("}")            # JSON tail and fence trimmed
+    assert '"notes"' not in code and "```" not in code
+    assert '"%-" + n + "s"' in code               # the unescaped literal survives
+    assert code.count("\n") >= 4
+
+
+def test_extract_java_code_leaves_clean_java_alone():
+    java = (
+        "package com.decobol.generated;\n\n"
+        "import java.math.BigDecimal;\n\n"
+        "public class Clean {\n"
+        '    private String x = String.format("%-5s", "a");\n'
+        "}"
+    )
+    assert extract_java_code(java) == java
+    assert extract_java_code('```java\n' + java + '\n```') == java
+
+
+def test_validator_fixes_semantic_findings_deterministically_instead_of_retrying():
+    """A finding with an exact mechanical repair must not cost a retry.
+
+    Every error-severity check carries its own fix; round-tripping that
+    through a 7B model spends one of MAX_RETRIES and risks a regression.
+    The validator patches it, re-validates the patched source, and only
+    then decides `passed`.
+    """
+    cobol = """
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PAYROLL.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-EMP-NAME PIC X(20).
+       01 WS-EMP-COUNT PIC 9(3).
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           MOVE "JANE DOE" TO WS-EMP-NAME.
+           MOVE 12345 TO WS-EMP-COUNT.
+    """
+    state = create_initial_state(job_id="test-val-fix", raw_cobol=cobol)
+    state["parsed_ast"] = ParserAgent().run(state)["result"]["ast"]
+    # What the model typically emits: literal MOVE, no truncation, no helper.
+    state["java_code"] = (
+        "public class Payroll {\n"
+        '    private String wsEmpName = "JANE DOE";\n'
+        "    private int wsEmpCount = 0;\n\n"
+        "    private void pMainPara() {\n"
+        '        this.wsEmpName = "JANE DOE";\n'
+        "        this.wsEmpCount = 12345;\n"
+        "    }\n"
+        "}\n"
+    )
+
+    result = ValidatorAgent().run(state)
+
+    assert "apply_semantic_fixes" in result["tools_called"]
+    patched = result["result"]["java_code"]
+    assert 'fitAlphanumeric("JANE DOE", 20)' in patched
+    assert "this.wsEmpCount = 12345 % 1000;" in patched
+    # The helper the fix depends on is declared, not just called.
+    assert "private static String fitAlphanumeric(String value, int length)" in patched
+
+    validation = result["result"]["validation"]
+    assert validation["counts"]["error"] == 0
+    assert validation["passed"] is True
+    assert result["next_action"] == "continue"      # no retry burned
+    assert result["used_llm"] is False
+
+
+def test_validator_leaves_unfixable_findings_to_the_converter():
+    """decimal-precision on a field real arithmetic depends on still retries."""
+    cobol = """
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PAYROLL.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-SALARY PIC S9(7)V99.
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           DISPLAY WS-SALARY.
+    """
+    state = create_initial_state(job_id="test-val-unfixable", raw_cobol=cobol)
+    state["parsed_ast"] = ParserAgent().run(state)["result"]["ast"]
+    state["java_code"] = (
+        "public class Payroll {\n"
+        "    private double wsSalary = 0.0;\n"
+        "    private void go() {\n"
+        "        this.wsSalary = this.wsSalary * 1.05;\n"
+        "    }\n"
+        "}\n"
+    )
+
+    result = ValidatorAgent().run(state)
+
+    validation = result["result"]["validation"]
+    assert any(f["check"] == "decimal-precision" for f in validation["findings"])
+    assert validation["passed"] is False
+    assert result["next_action"] == "retry"
+    assert "decimal-precision" in result["result"]["retry_feedback"]
+
+
+def test_sanitizer_keeps_a_second_top_level_type():
+    """Trimming at the first closing brace silently deleted helper classes."""
+    reply = ('public class Payroll {\n    void go() {}\n}\n\n'
+             'class PayrollHelper {\n    static int x = 1;\n}')
+
+    code = extract_java_code(reply)
+
+    assert "class PayrollHelper" in code
+    assert code.rstrip().endswith("}")
+
+
+def test_sanitizer_does_not_decode_escapes_in_valid_one_line_java():
+    """Minified Java printing "a\\nb" must not have its literal decoded."""
+    mini = 'public class T { public static void main(String[] a){ System.out.print("x\\ny"); } }'
+
+    assert extract_java_code(mini) == mini

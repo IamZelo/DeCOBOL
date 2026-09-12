@@ -39,11 +39,24 @@ __all__ = ["semantic_checks"]
 # Java source helpers — best-effort text matching, not a Java parser
 # --------------------------------------------------------------------------
 
+def _assignment_rhss(java_code: str, java_name: str) -> list[str]:
+    """Every right-hand side assigned to ``javaName``, in source order.
+
+    The ``=`` must be a real assignment: ``==``, ``<=`` and ``+=`` all
+    contain one and none of them assigns the field.
+    """
+    matches = re.findall(
+        rf"(?:(?<![.\w])|(?<=this\.)){re.escape(java_name)}\s*"
+        rf"(?<![=!<>+\-*/%&|^])=(?!=)\s*([^;]+);",
+        java_code,
+    )
+    return [m.strip() for m in matches]
+
+
 def _assignment_rhs(java_code: str, java_name: str) -> str | None:
     """The right-hand side of the last ``javaName = ...;`` in the source."""
-    matches = re.findall(
-        rf"(?:(?<![.\w])|(?<=this\.)){re.escape(java_name)}\s*=\s*([^;]+);", java_code)
-    return matches[-1].strip() if matches else None
+    matches = _assignment_rhss(java_code, java_name)
+    return matches[-1] if matches else None
 
 
 def _declared_type(java_code: str, java_name: str) -> str | None:
@@ -56,15 +69,27 @@ def _declared_type(java_code: str, java_name: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _set_scale_of(java_code: str, java_name: str) -> int | None:
-    """The literal argument of a ``.setScale(n`` on ``javaName``'s line."""
+def _set_scales_of(java_code: str, java_name: str) -> list[int]:
+    """Every ``.setScale(n`` literal applied to ``javaName``.
+
+    Assignment right-hand sides first: a field whose *declaration* carries
+    the right scale can still be re-assigned at the wrong one three lines
+    down, and looking only at the first mention silently passes that.
+    Falls back to line scope when the field is never assigned (a bare
+    ``return wsRate.setScale(2, ...)``).
+    """
+    scales: list[int] = []
+    for rhs in _assignment_rhss(java_code, java_name):
+        scales.extend(int(n) for n in re.findall(r"\.setScale\(\s*(\d+)", rhs))
+    if scales:
+        return scales
     for line in java_code.splitlines():
         if java_name not in line:
             continue
         m = re.search(r"\.setScale\(\s*(\d+)", line)
         if m:
-            return int(m.group(1))
-    return None
+            return [int(m.group(1))]
+    return []
 
 
 def _quoted_literal_text(token: str) -> str | None:
@@ -104,7 +129,11 @@ def _check_move_padding(var: dict, source: str, st: dict, java_code: str,
     rhs = _assignment_rhs(java_code, var["java_name"])
     if rhs is None:
         return  # nothing generated yet for this field; abstain
-    if any(p in rhs for p in ("String.format", "padEnd", "%-", "fitAlphanumeric")):
+    # ``" ".repeat(n)`` is what render_java_skeleton emits for PIC X(n)'s
+    # initial value — already exactly n chars wide. Flagging it made the
+    # deterministic fallback fail its own semantic check and spend every
+    # retry on a field that was correct.
+    if any(p in rhs for p in ("String.format", "padEnd", "%-", "fitAlphanumeric", ".repeat(")):
         return  # padding is present in some form; do not second-guess it
     findings.append(_finding(
         "move-padding", "error",
@@ -131,10 +160,17 @@ def _check_numeric_truncation(var: dict, source: str, st: dict, java_code: str,
     # truncated it to the PIC's storage width.
     if source not in rhs:
         return
-    # If modulo or remainder is already applied, truncation was handled
-    if any(p in rhs for p in ("%", "remainder", "floorMod", "mod(")):
+    # If modulo or remainder is already applied, truncation was handled.
+    # ``truncateDigits`` is the helper ``semantic_fixes`` injects for the
+    # BigDecimal case — the checker has to recognise its own fixer's output
+    # or the finding re-fires forever.
+    if any(p in rhs for p in ("%", "remainder", "floorMod", "mod(", "truncateDigits")):
         return
-    mod_val = 10 ** var["digits"]
+    # COBOL drops high-order *integer* digits, so the modulus is 10 raised
+    # to the integer-digit count — not the total. PIC 9(3)V99 holds 5
+    # digits but only 3 of them are integers: 1234567.89 lands at 567.89,
+    # not 34567.89.
+    mod_val = 10 ** (var["digits"] - (var.get("scale") or 0))
     if var["java_type"] in ("int", "long"):
         suggestion = f'{var["java_name"]} = {source} % {mod_val}'
     else:
@@ -193,9 +229,11 @@ def _check_scale_mismatch(var: dict, java_code: str,
                            findings: list[dict[str, Any]]) -> None:
     if var.get("java_type") != "BigDecimal" or var.get("scale") is None:
         return
-    found = _set_scale_of(java_code, var["java_name"])
-    if found is None or found == var["scale"]:
+    scales = _set_scales_of(java_code, var["java_name"])
+    wrong = [s for s in scales if s != var["scale"]]
+    if not wrong:
         return
+    found = wrong[0]
     findings.append(_finding(
         "scale-mismatch", "error",
         f'{var["name"]} is PIC {var["pic"]} with scale {var["scale"]}, but '

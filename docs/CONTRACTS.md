@@ -109,6 +109,7 @@ Names are frozen — P2's prompts and P1's events reference them as strings.
 | `render_java_skeleton` | `ast`, `java_package` | `{"java_code": "...", "class_name": "..."}` |
 | `javac_compile` | `java_code`, `class_name` | `{"compile": <CompileResult §7.1>}` |
 | `semantic_checks` | `ast`, `java_code` | `{"findings": [<Finding §8>]}` |
+| `apply_semantic_fixes` | `java_code`, `ast`, `findings` | `{"java_code": "...", "applied": [...], "unfixed": [<Finding §8> + `fix_reason`], "imports_added": [...], "helpers_added": [...], "changed": bool}` |
 
 New tools are additive. Adding one requires no version bump.
 
