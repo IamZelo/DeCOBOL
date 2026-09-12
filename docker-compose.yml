@@ -1,0 +1,70 @@
+services:
+  # Local LLM runtime (llama.cpp llama-server, OpenAI-compatible API).
+  # Optional: requires a GGUF model in llm/models/ (see README §7.2).
+  # Not started by a plain `docker compose up` — enable with `--profile llm`.
+  llm:
+    # CUDA build — required for -ngl to actually offload to an NVIDIA GPU.
+    # The plain `:server` tag is CPU-only and silently ignores -ngl.
+    # Needs the NVIDIA Container Toolkit installed on the host
+    # (https://github.com/NVIDIA/nvidia-container-toolkit).
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    profiles: ["llm"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./llm/models:/models:ro
+    command: >
+      -m /models/${LLAMA_MODEL_FILE:-qwen2.5-coder-7b-instruct-q4_k_m.gguf}
+      --host 0.0.0.0 --port 8080
+      -c ${LLAMA_CTX_SIZE:-16384}
+      -ngl ${LLAMA_GPU_LAYERS:-99}
+      --alias ${LLM_MODEL:-decobol-local}
+      --jinja
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/models"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      LLM_BASE_URL: http://llm:8080/v1
+      LLM_API_KEY: ${LLM_API_KEY:-sk-no-key-required}
+      LLM_MODEL: ${LLM_MODEL:-decobol-local}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.1}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-4096}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-180}
+      # Off by default so the stack is demoable without the (profile-gated) llm
+      # service or a downloaded model. Set MOCK_LLM=false once llm is running.
+      MOCK_LLM: ${MOCK_LLM:-true}
+      FLASK_PORT: 5000
+      MAX_RETRIES: ${MAX_RETRIES:-2}
+      MAX_WORKERS: ${MAX_WORKERS:-2}
+      JAVA_PACKAGE: ${JAVA_PACKAGE:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
