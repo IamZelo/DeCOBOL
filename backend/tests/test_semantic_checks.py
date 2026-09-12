@@ -80,6 +80,19 @@ def test_move_padding_not_flagged_when_java_pads():
     assert _findings_by_check(findings, "move-padding") == []
 
 
+def test_move_padding_not_flagged_when_java_pads_with_this():
+    var = _var(java_name="wsEmpName", length=20)
+    ast = _ast(
+        variables=[var],
+        statements=[{"kind": "MOVE", "raw": "...", "targets": ["WS-X"],
+                     "sources": ['"JANE DOE"'], "rounded": False,
+                     "on_size_error": False, "paragraph": "P", "line": 88}],
+    )
+    java_code = 'this.wsEmpName = String.format("%-20s", "JANE DOE");'
+    findings = semantic_checks(ast, java_code)["findings"]
+    assert _findings_by_check(findings, "move-padding") == []
+
+
 def test_move_padding_abstains_when_assignment_not_found():
     var = _var(java_name="wsEmpName", length=20)
     ast = _ast(

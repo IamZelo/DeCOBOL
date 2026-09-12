@@ -39,7 +39,7 @@ __all__ = ["semantic_checks"]
 def _assignment_rhs(java_code: str, java_name: str) -> str | None:
     """The right-hand side of the last ``javaName = ...;`` in the source."""
     matches = re.findall(
-        rf"(?<![.\w]){re.escape(java_name)}\s*=\s*([^;]+);", java_code)
+        rf"(?:(?<![.\w])|(?<=this\.)){re.escape(java_name)}\s*=\s*([^;]+);", java_code)
     return matches[-1].strip() if matches else None
 
 

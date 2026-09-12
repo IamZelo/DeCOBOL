@@ -64,9 +64,9 @@ def test_convert_async_job(client, sample_cobol_hello):
 
     job_id = data["job_id"]
 
-    # Poll briefly for job completion
+    # Poll for job completion (up to 15s for local LLM inference)
     job_data = {}
-    for _ in range(25):
+    for _ in range(150):
         time.sleep(0.1)
         job_res = client.get(f"/api/jobs/{job_id}")
         assert job_res.status_code == 200
