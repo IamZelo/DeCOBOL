@@ -76,9 +76,17 @@ class OptimizerAgent(Agent):
             llm_reply = self.ask_llm(system=system_prompt, user=user_prompt)
             used_llm = True
 
-            parsed = extract_json(llm_reply)
-            candidate_code = parsed.get("java_code", "")
-            candidate_changes = parsed.get("changes", [])
+            try:
+                parsed = extract_json(llm_reply)
+                candidate_code = parsed.get("java_code", "")
+                candidate_changes = parsed.get("changes", [])
+            except ValueError:
+                # Small local models often skip the JSON envelope for a full
+                # class body and just return a ```java fence — recover the
+                # code the same way the converter does rather than discarding
+                # a perfectly usable optimization.
+                candidate_code = extract_java_code(llm_reply)
+                candidate_changes = ["Extracted Java code block from model response (no JSON envelope)."]
 
             # Verify Non-Negotiable Safety Constraints from optimizer.md
             if self._verify_safety(java_code, candidate_code):
