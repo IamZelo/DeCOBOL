@@ -1,0 +1,49 @@
+package {{ java_package }};
+{% if imports %}
+{% for imp in imports %}
+import {{ imp }};
+{% endfor %}
+{% endif %}
+/**
+ * Generated from COBOL program {{ program_id }} by DeCOBOL.
+ *
+ * This is a deterministic skeleton: field types and storage semantics come
+ * from the PIC clauses below, but paragraph bodies are TODO stubs. The
+ * converter agent fills them in from {{ program_id }}'s PROCEDURE DIVISION;
+ * this class is what it falls back to if that step is unavailable.
+ */
+public class {{ class_name }} {
+{% for field in fields %}
+    // {{ field.comment }}
+    {{ field.access }} {{ field.java_type }} {{ field.java_name }} = {{ field.initializer }};
+{% endfor %}
+{% if linkage_fields %}
+    // LINKAGE SECTION -- {{ program_id }} is a subprogram; these are its
+    // call parameters, not standalone storage.
+{% for field in linkage_fields %}
+    // {{ field.comment }}
+    {{ field.access }} {{ field.java_type }} {{ field.java_name }} = {{ field.initializer }};
+{% endfor %}
+{% endif %}
+{% for method in methods %}
+    /**
+     * COBOL paragraph {{ method.cobol_name }} ({{ method.section or "no section" }}),
+     * lines {{ method.start_line }}-{{ method.end_line }}.
+{% if method.performs %}
+     * Performs: {{ method.performs | join(", ") }}
+{% endif %}
+     */
+    private void {{ method.java_name }}() {
+        // TODO: translate this paragraph's COBOL body.
+        /*
+{{ method.source }}
+        */
+    }
+{% endfor %}
+{% if not is_subprogram %}
+    public static void main(String[] args) {
+        {{ class_name }} program = new {{ class_name }}();
+        // TODO: invoke the entry paragraph.
+    }
+{% endif %}
+}
