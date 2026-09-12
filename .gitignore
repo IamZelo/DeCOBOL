@@ -13,6 +13,7 @@ dist/
 .env
 data/
 *.log
+.decobol-output/
 
 # Model weights (download locally, never commit)
 llm/models/*
