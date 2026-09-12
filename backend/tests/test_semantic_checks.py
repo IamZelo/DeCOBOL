@@ -93,6 +93,44 @@ def test_move_padding_not_flagged_when_java_pads_with_this():
     assert _findings_by_check(findings, "move-padding") == []
 
 
+def test_move_padding_not_flagged_when_java_uses_fit_alphanumeric_helper():
+    # converter.md §8 explicitly tells the model to use this helper instead
+    # of a bare String.format, since format alone doesn't truncate.
+    var = _var(java_name="wsEmpName", length=20)
+    ast = _ast(
+        variables=[var],
+        statements=[{"kind": "MOVE", "raw": "...", "targets": ["WS-X"],
+                     "sources": ['"JANE DOE"'], "rounded": False,
+                     "on_size_error": False, "paragraph": "P", "line": 88}],
+    )
+    java_code = 'this.wsEmpName = fitAlphanumeric("JANE DOE", 20);'
+    findings = semantic_checks(ast, java_code)["findings"]
+    assert _findings_by_check(findings, "move-padding") == []
+
+
+def test_move_padding_deduped_when_field_targeted_by_two_move_statements():
+    # WS-EMP-NAME is MOVE'd to twice (e.g. once in an init paragraph, once
+    # later) but there is only one Java assignment and thus only one real
+    # bug to fix — the finding must not be reported twice.
+    var = _var(java_name="wsEmpName", length=20)
+    ast = _ast(
+        variables=[var],
+        statements=[
+            {"kind": "MOVE", "raw": 'MOVE "A" TO WS-X', "targets": ["WS-X"],
+             "sources": ['"A"'], "rounded": False, "on_size_error": False,
+             "paragraph": "INIT", "line": 10},
+            {"kind": "MOVE", "raw": 'MOVE "JANE DOE" TO WS-X', "targets": ["WS-X"],
+             "sources": ['"JANE DOE"'], "rounded": False, "on_size_error": False,
+             "paragraph": "MAIN", "line": 88},
+        ],
+    )
+    var["name"] = "WS-X"
+    java_code = 'this.wsEmpName = "JANE DOE";'
+    findings = semantic_checks(ast, java_code)["findings"]
+    hits = _findings_by_check(findings, "move-padding")
+    assert len(hits) == 1
+
+
 def test_move_padding_abstains_when_assignment_not_found():
     var = _var(java_name="wsEmpName", length=20)
     ast = _ast(

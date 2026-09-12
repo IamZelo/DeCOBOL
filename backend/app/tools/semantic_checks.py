@@ -104,7 +104,7 @@ def _check_move_padding(var: dict, source: str, st: dict, java_code: str,
     rhs = _assignment_rhs(java_code, var["java_name"])
     if rhs is None:
         return  # nothing generated yet for this field; abstain
-    if any(p in rhs for p in ("String.format", "padEnd", "%-")):
+    if any(p in rhs for p in ("String.format", "padEnd", "%-", "fitAlphanumeric")):
         return  # padding is present in some form; do not second-guess it
     findings.append(_finding(
         "move-padding", "error",
@@ -330,6 +330,24 @@ def semantic_checks(ast: dict[str, Any], java_code: str = "") -> dict:
     for fd in ast.get("files", []):
         _check_file(fd, findings)
     _check_subprogram(ast, findings)
+
+    # Statement-level checks (move-padding, numeric-truncation, rounding-mode)
+    # walk every COBOL statement that references a field, so a field touched
+    # by more than one MOVE/COMPUTE ROUNDED produces one finding per
+    # statement even though there is only one Java assignment — and thus
+    # only one real bug — to fix. Collapse those to one finding per
+    # (check, cobol_ref) so counts.error and RETRY_FEEDBACK don't double up
+    # on a single defect.
+    seen: set[tuple[str, str | None]] = set()
+    deduped: list[dict[str, Any]] = []
+    for f in findings:
+        key = (f["check"], f.get("cobol_ref"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(f)
+    findings = deduped
+
     if findings:
         logger.debug("semantic_checks produced %d findings: %s", len(findings), findings)
     return {"findings": findings}
