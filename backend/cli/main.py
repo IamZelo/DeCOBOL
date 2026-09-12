@@ -51,16 +51,21 @@ def parse(file: Path):
 @cli.command()
 @click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path), help="Output .java destination file.")
+@click.option("--json", "output_json", is_flag=True, help="Output the full conversion state as JSON to stdout.")
+@click.option("--json-out", type=click.Path(dir_okay=False, path_type=Path), help="Save the full conversion state as a JSON file.")
 @click.option("-v", "--verbose", is_flag=True, help="Print live agent and tool execution events.")
 @click.option("--mock", is_flag=True, help="Run with mock LLM (deterministic template fallback).")
-def convert(file: Path, output: Path, verbose: bool, mock: bool):
+def convert(file: Path, output: Path, output_json: bool, json_out: Path, verbose: bool, mock: bool):
     """Convert a COBOL file to modern Java."""
     cobol_code = file.read_text(encoding="utf-8", errors="replace")
 
     if mock:
         settings.mock_llm = True
 
-    click.echo(f"==> Starting conversion of {file.name}...")
+    if not output_json:
+        click.echo(f"==> Starting conversion of {file.name}...")
+    elif verbose:
+        click.echo(f"==> Starting conversion of {file.name}...", err=True)
 
     def on_event(ev: Event):
         if verbose:
@@ -71,7 +76,7 @@ def convert(file: Path, output: Path, verbose: bool, mock: bool):
                 msg = click.style(msg, fg="yellow", bold=True)
             elif ev.type == EventType.ERROR:
                 msg = click.style(msg, fg="red", bold=True)
-            click.echo(f"{ts} {agent} {msg}")
+            click.echo(f"{ts} {agent} {msg}", err=output_json)
 
     try:
         final_state = run_pipeline(
@@ -88,6 +93,14 @@ def convert(file: Path, output: Path, verbose: bool, mock: bool):
     java_code = final_state.get("optimized_code") or final_state.get("java_code", "")
     val = final_state.get("validation", {})
     passed = val.get("passed", False)
+
+    if json_out:
+        json_out.write_text(json.dumps(final_state, indent=2, default=str), encoding="utf-8")
+        click.echo(f"Saved conversion JSON to {json_out.resolve()}", err=output_json)
+
+    if output_json:
+        click.echo(json.dumps(final_state, indent=2, default=str))
+        return
 
     if passed:
         click.echo(click.style(f"\n[OK] Conversion succeeded (Status: {status})", fg="green", bold=True))

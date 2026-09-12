@@ -53,3 +53,24 @@ def test_health_reports_settings():
 def test_convert_missing_file_is_a_usage_error():
     result = CliRunner().invoke(cli, ["convert", "/no/such/file.cob"])
     assert result.exit_code != 0
+
+
+def test_convert_json_flag_outputs_valid_json():
+    result = CliRunner().invoke(cli, ["convert", _PAYROLL, "--mock", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["job_id"].startswith("cli-")
+    assert "parsed_ast" in data
+    assert "java_code" in data
+    assert "status" in data
+
+
+def test_convert_json_out_writes_valid_json_file(tmp_path):
+    json_path = tmp_path / "payroll_state.json"
+    result = CliRunner().invoke(cli, ["convert", _PAYROLL, "--mock", "--json-out", str(json_path)])
+    assert result.exit_code == 0
+    assert json_path.exists()
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["status"] in ("completed", "completed_with_warnings")
+    assert data["parsed_ast"]["program_id"] == "PAYROLL"
+
