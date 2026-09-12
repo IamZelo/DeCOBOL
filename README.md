@@ -22,6 +22,7 @@ DeCOBOL takes legacy COBOL programs and produces readable, compilable Java. Spec
 10. [Roadmap and checkpoints](#10-roadmap-and-checkpoints)
 11. [Git workflow](#11-git-workflow)
 12. [Known hard problems](#12-known-hard-problems)
+13. [Cost: local LLM vs. an agentic API approach](#13-cost-local-llm-vs-an-agentic-api-approach)
 
 ---
 
@@ -433,6 +434,32 @@ Be upfront about these with judges:
 - **File I/O** (sequential/indexed/VSAM) has no single correct Java abstraction. We start with plain file I/O and TODOs.
 - **Dialects** (IBM, Micro Focus, GnuCOBOL) differ. We target standard fixed/free-format COBOL.
 - **7B models are inconsistent.** Use low temperature, JSON-constrained output (llama-server `response_format`), deterministic fallbacks, and a small fixed benchmark in `backend/tests/`.
+
+---
+
+## 13. Cost: local LLM vs. an agentic API approach
+
+A general coding agent (Claude Code or similar) converting COBOL directly pays for an *agentic loop* per file — read, generate, compile, see the error, retry — against a frontier model, resending growing context on every turn. DeCOBOL's pipeline makes exactly **one** LLM call per file (the converter step); parsing, type-mapping, `javac` compilation, and semantic validation are deterministic Python, not model calls.
+
+| | Agentic API approach | DeCOBOL |
+|---|---|---|
+| LLM calls per file | ~5–10 turns (generate → compile → fix → recompile...) | 1 |
+| Cost per file (order of magnitude) | ~$0.10–$0.80, depending on model tier | ~$0 marginal (self-hosted 7B) |
+| Cost at 5,000 files | ~$500–$4,000 | ~$0 marginal, after hardware |
+| Data leaves the network? | Yes, unless on a private/enterprise deployment | No — that's the point of `llm/` running locally |
+
+The figures above are order-of-magnitude estimates, not a benchmark — treat them as illustrative, not quoted.
+
+**Minimum hardware for the local model** (`qwen2.5-coder-7b-instruct-q4_k_m.gguf`, `LLAMA_CTX_SIZE=16384`, full GPU offload):
+
+| | Requirement |
+|---|---|
+| Model file on disk | ~4.5–5 GB (Q4_K_M quantization) |
+| VRAM (GPU offload) | ~6–8 GB comfortable; **8 GB is the practical minimum** |
+| RAM (CPU-only fallback) | ~16 GB; works, but single-digit tokens/sec instead of tens-to-hundreds |
+| Illustrative one-time hardware cost | $0 (existing CPU) · ~$200–250 (used RTX 3060 12GB) · ~$450–500 (RTX 4060 Ti 16GB) · ~$1,000–1,200 (16GB Apple Silicon Mac) |
+
+The hardware is a one-time cost; the API approach is per-file, forever. Against the ~$0.10–$0.80/file range above, even the cheapest GPU tier breaks even within a few hundred to a few thousand converted files — after that, every additional file is free.
 
 ---
 
