@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Local config & data
+.env
+data/
+*.log
+
+# Model weights (download locally, never commit)
+llm/models/*
+!llm/models/.gitkeep
+
+# Node / frontend
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Java build output
+*.class
+out/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+temp
