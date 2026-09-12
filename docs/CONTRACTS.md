@@ -688,6 +688,24 @@ Request: `{"cobol_code": "...", "filename": "payroll.cob", "options": {}, "wait"
 `202` → `{"job_id": "a3f1c8...", "status": "queued"}`
 With `wait: true`, `200` → the full Job object below.
 
+**Addition over README §9, per `docs/LOCAL_DEPLOYMENT_WORKFLOW.md`:** the
+request accepts `source_path` (relative to `INPUT_ROOT`) as an alternative to
+inline `cobol_code` — `{"source_path": "jcl/payment.cbl", "options": {}, "wait": false}`.
+`filename` is then derived from the path's basename. Exactly one of
+`cobol_code` / `source_path` must resolve to non-empty source; a `source_path`
+that escapes `INPUT_ROOT` or does not exist is a `404`.
+
+### `POST /api/convert/batch` (additive, per `docs/LOCAL_DEPLOYMENT_WORKFLOW.md`)
+
+Request: `{"source_dir": "jcl", "recursive": true, "options": {}}`
+
+Fans out to one `POST /api/convert`-equivalent job per `.cbl`/`.cpy`/`.cob`
+file found under `source_dir` (relative to `INPUT_ROOT`). This is a loop at
+the API layer over the existing per-file pipeline — it does not change
+`orchestrator/graph.py`'s per-file contract at all.
+
+`202` → `{"jobs": [{"job_id": "...", "source_path": "jcl/payment.cbl", "status": "queued"}, ...]}`
+
 ### `GET /api/jobs/<id>` → Job
 
 ```json
@@ -699,6 +717,8 @@ With `wait: true`, `200` → the full Job object below.
   "finished_ts": 1757668831.0,
   "duration_ms": 41000,
   "retry_count": 1,
+  "source_path": "jcl/payroll.cob",
+  "output_path": "jcl/Payroll.java",
   "raw_cobol": "...",
   "result": {
     "program_id": "PAYROLL",
@@ -718,6 +738,26 @@ With `wait: true`, `200` → the full Job object below.
 `result` is `null` until the job leaves `queued`/`running`. `result.java_code`
 is already the `optimized_code`-else-`java_code` resolution from §5; P4 does not
 re-implement that rule.
+
+`source_path` / `output_path` are additions over README §5, per
+`docs/LOCAL_DEPLOYMENT_WORKFLOW.md`: both are `null` for a job submitted with
+inline `cobol_code` (nothing to mirror to on disk). `output_path` is set only
+once the job finishes and only when `source_path` was given — the final Java
+is written under `OUTPUT_ROOT` at that path (`optimized_code`-else-`java_code`,
+same fallback as `result.java_code`), mirroring the input's relative directory.
+A failed job leaves `output_path: null`.
+
+### Workspace filesystem (additive, per `docs/LOCAL_DEPLOYMENT_WORKFLOW.md`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/fs/tree?path=&root=input\|output` | List a directory under `INPUT_ROOT`/`OUTPUT_ROOT`. `200` → `{"root": "...", "path": "...", "entries": [{"name": "payment.cbl", "type": "file", "size": 4213}, {"name": "jcl", "type": "dir"}]}`. A `path` that escapes the root, or isn't a directory, is `400`. |
+| `GET` | `/api/fs/file?path=&root=input\|output` | Read one file's contents. `200` → `{"path": "...", "root": "input", "content": "...", "size": 4213}`. Missing file or an escaping path is `404`. |
+
+Both resolve `path` against `INPUT_ROOT`/`OUTPUT_ROOT` (`backend/app/config.py`)
+and reject anything that resolves outside the root — the one place a
+client-controlled string reaches the real filesystem. `root` defaults to
+`input`.
 
 ---
 

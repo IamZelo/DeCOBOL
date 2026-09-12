@@ -3,21 +3,16 @@ import {
   createElement,
   useCallback,
   useContext,
-  useMemo,
   useState,
   type ReactNode,
 } from 'react'
 import { convert } from '../api/client'
-import { DEFAULT_SELECTION, SOURCE_FILES } from '../data/fixtures'
-import type { ConvertOptions, SourceFile } from '../types'
+import type { ConvertOptions } from '../types'
 
 export type TargetRuntime = 'java_21' | 'java_17'
 export type PrecisionMode = 'big_decimal' | 'native'
 
 interface ConversionState {
-  files: SourceFile[]
-  selected: string[]
-  activePath: string
   javaPackage: string
   runtime: TargetRuntime
   precision: PrecisionMode
@@ -25,72 +20,85 @@ interface ConversionState {
   jobId: string | null
   submitting: boolean
   submitError: string | null
-  selectedFiles: SourceFile[]
-  toggleSelected: (path: string) => void
-  setSelection: (paths: string[]) => void
-  setActivePath: (path: string) => void
   setJavaPackage: (value: string) => void
   setRuntime: (value: TargetRuntime) => void
   setPrecision: (value: PrecisionMode) => void
   setConfirmLocal: (value: boolean) => void
-  startConversion: () => Promise<string | null>
+  /**
+   * Submits one /api/convert job per selected path. The first becomes the
+   * "live" job the Pipeline/Diff pages track; any others are fired
+   * fire-and-forget and show up in Job History once they finish — v1 has one
+   * live pipeline view at a time, matching the Figma design, not a
+   * multi-job dashboard.
+   */
+  startConversion: (sourcePaths: string[]) => Promise<string | null>
 }
 
 const Ctx = createContext<ConversionState | null>(null)
 
+const JOB_ID_KEY = 'decobol.lastJobId'
+
+function readStoredJobId(): string | null {
+  try {
+    return sessionStorage.getItem(JOB_ID_KEY)
+  } catch {
+    return null
+  }
+}
+
 export function ConversionProvider({ children }: { children: ReactNode }) {
-  const [selected, setSelected] = useState<string[]>(DEFAULT_SELECTION)
-  const [activePath, setActivePath] = useState('jcl/PAYROLL01.cbl')
   const [javaPackage, setJavaPackage] = useState('com.legacy.bank.refactored')
   const [runtime, setRuntime] = useState<TargetRuntime>('java_21')
   const [precision, setPrecision] = useState<PrecisionMode>('big_decimal')
   const [confirmLocal, setConfirmLocal] = useState(true)
-  const [jobId, setJobId] = useState<string | null>(null)
+  // Persisted so a hard reload (or a direct link to /diff or /pipeline)
+  // doesn't lose track of the job that's actually running or just finished —
+  // this is in-memory-only React state otherwise, and a full navigation
+  // remounts the whole app.
+  const [jobId, setJobIdState] = useState<string | null>(readStoredJobId)
+  const setJobId = useCallback((id: string | null) => {
+    setJobIdState(id)
+    try {
+      if (id) sessionStorage.setItem(JOB_ID_KEY, id)
+      else sessionStorage.removeItem(JOB_ID_KEY)
+    } catch {
+      /* sessionStorage unavailable (private mode etc.) — jobId still works in-memory */
+    }
+  }, [])
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  const toggleSelected = useCallback((path: string) => {
-    setSelected((prev) =>
-      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path],
-    )
-  }, [])
-
-  const selectedFiles = useMemo(
-    () => SOURCE_FILES.filter((f) => selected.includes(f.path)),
-    [selected],
+  const startConversion = useCallback(
+    async (sourcePaths: string[]) => {
+      const [primary, ...rest] = sourcePaths
+      if (!primary) return null
+      setSubmitting(true)
+      setSubmitError(null)
+      const options: ConvertOptions = {
+        java_package: javaPackage,
+        target_runtime: runtime,
+        precision_mode: precision,
+      }
+      try {
+        const res = await convert({ source_path: primary, options })
+        setJobId(res.job_id)
+        for (const path of rest) {
+          convert({ source_path: path, options }).catch(() => {
+            /* background jobs surface in Job History regardless */
+          })
+        }
+        return res.job_id
+      } catch (err) {
+        setSubmitError(err instanceof Error ? err.message : String(err))
+        return null
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [javaPackage, precision, runtime],
   )
 
-  const startConversion = useCallback(async () => {
-    const primary =
-      selectedFiles.find((f) => f.cobol_code) ?? selectedFiles[0] ?? null
-    if (!primary) return null
-    setSubmitting(true)
-    setSubmitError(null)
-    const options: ConvertOptions = {
-      java_package: javaPackage,
-      target_runtime: runtime,
-      precision_mode: precision,
-    }
-    try {
-      const res = await convert({
-        cobol_code: primary.cobol_code,
-        filename: primary.name,
-        options,
-      })
-      setJobId(res.job_id)
-      return res.job_id
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : String(err))
-      return null
-    } finally {
-      setSubmitting(false)
-    }
-  }, [javaPackage, precision, runtime, selectedFiles])
-
   const value: ConversionState = {
-    files: SOURCE_FILES,
-    selected,
-    activePath,
     javaPackage,
     runtime,
     precision,
@@ -98,10 +106,6 @@ export function ConversionProvider({ children }: { children: ReactNode }) {
     jobId,
     submitting,
     submitError,
-    selectedFiles,
-    toggleSelected,
-    setSelection: setSelected,
-    setActivePath,
     setJavaPackage,
     setRuntime,
     setPrecision,

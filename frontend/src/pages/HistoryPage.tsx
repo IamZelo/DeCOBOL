@@ -1,92 +1,132 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { getJob, listJobs } from '../api/client'
 import { TopNav } from '../components/TopNav'
-import {
-  AUDIT_LOG_PATH,
-  AUDIT_METRICS,
-  AUDIT_ROWS,
-  AUDIT_TOTALS,
-} from '../data/fixtures'
+import { formatSeconds, formatTimestamp } from '../lib/format'
+import type { JobSummary } from '../types'
 
 type Tab = 'all' | 'successful' | 'retried'
+
+interface EnrichedRow extends JobSummary {
+  loc: number | null
+  passed: boolean | null
+}
 
 export function HistoryPage() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('all')
   const [query, setQuery] = useState('')
+  const [rows, setRows] = useState<EnrichedRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const rows = useMemo(() => {
-    let list = AUDIT_ROWS
-    if (tab === 'retried') list = list.filter((r) => r.retries)
-    if (tab === 'successful') list = list.filter((r) => !r.retries)
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const { jobs } = await listJobs()
+        if (cancelled) return
+        setRows(jobs.map((j) => ({ ...j, loc: null, passed: null })))
+
+        // Job summaries don't carry LOC/pass-rate (CONTRACTS §11) — only the
+        // full detail does. Fetch details for terminal jobs to fill those in;
+        // fine at this dataset size, would want a summary-field addition to
+        // CONTRACTS at real scale.
+        const terminal = jobs.filter((j) =>
+          ['completed', 'completed_with_warnings', 'failed'].includes(j.status),
+        )
+        const details = await Promise.all(
+          terminal.map((j) => getJob(j.job_id).catch(() => null)),
+        )
+        if (cancelled) return
+        setRows((prev) =>
+          prev.map((row) => {
+            const detail = details.find((d) => d?.job_id === row.job_id)
+            if (!detail) return row
+            const loc = detail.result?.java_code
+              ? detail.result.java_code.split('\n').length
+              : null
+            const passed = detail.result?.validation?.passed ?? null
+            return { ...row, loc, passed }
+          }),
+        )
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const filtered = useMemo(() => {
+    let list = rows
+    if (tab === 'retried') list = list.filter((r) => r.retry_count > 0)
+    if (tab === 'successful') list = list.filter((r) => r.retry_count === 0 && r.status !== 'failed')
     const needle = query.trim().toLowerCase()
     if (needle) {
       list = list.filter(
         (r) =>
-          r.batch.toLowerCase().includes(needle) ||
-          r.source.toLowerCase().includes(needle),
+          r.job_id.toLowerCase().includes(needle) ||
+          (r.source_path ?? '').toLowerCase().includes(needle) ||
+          (r.filename ?? '').toLowerCase().includes(needle),
       )
     }
     return list
-  }, [query, tab])
+  }, [rows, tab, query])
+
+  const totals = {
+    all: rows.length,
+    successful: rows.filter((r) => r.retry_count === 0 && r.status !== 'failed').length,
+    retried: rows.filter((r) => r.retry_count > 0).length,
+  }
+
+  const totalLoc = rows.reduce((n, r) => n + (r.loc ?? 0), 0)
+  const withVerdict = rows.filter((r) => r.passed != null)
+  const passRate = withVerdict.length
+    ? Math.round((withVerdict.filter((r) => r.passed).length / withVerdict.length) * 100)
+    : null
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'all', label: `All (${AUDIT_TOTALS.all})` },
-    { id: 'successful', label: `Successful (${AUDIT_TOTALS.successful})` },
-    { id: 'retried', label: `Retried (${AUDIT_TOTALS.retried})` },
+    { id: 'all', label: `All (${totals.all})` },
+    { id: 'successful', label: `Successful (${totals.successful})` },
+    { id: 'retried', label: `Retried (${totals.retried})` },
   ]
 
   return (
     <div className="app">
-      <TopNav
-        right={
-          <>
-            <span>daemon: :8080</span>
-            <span>|</span>
-            <span>air-gapped</span>
-            <span className="avatar" aria-hidden="true">
-              <svg viewBox="0 0 14 14" width="12" height="12">
-                <circle
-                  cx="7"
-                  cy="5"
-                  r="2.6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.1"
-                />
-                <path
-                  d="M2.4 12.4a4.9 4.9 0 0 1 9.2 0"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.1"
-                />
-              </svg>
-            </span>
-          </>
-        }
-      />
+      <TopNav right={<span>daemon local</span>} />
 
       <div className="page">
         <div className="page-inner is-history">
           <header className="history-head">
             <div>
               <h1 className="h1">Audit Log &amp; Run History</h1>
-              <p className="meta">
-                Local daemon runs logged under{' '}
-                <span className="history-path">{AUDIT_LOG_PATH}</span>
-              </p>
+              <p className="meta">Runs served by this backend's in-memory job store.</p>
             </div>
-            <button className="btn">EXPORT CSV</button>
           </header>
 
           <section className="metrics">
-            {AUDIT_METRICS.map((metric) => (
-              <div className="metric" key={metric.label}>
-                <span className="label">{metric.label}</span>
-                <span className="metric-value">{metric.value}</span>
-                <span className="meta">{metric.note}</span>
-              </div>
-            ))}
+            <div className="metric">
+              <span className="label">TOTAL MODERNIZED LOC</span>
+              <span className="metric-value">{totalLoc.toLocaleString()}</span>
+              <span className="meta">Across {rows.length} runs</span>
+            </div>
+            <div className="metric">
+              <span className="label">VERIFIED PASS RATE</span>
+              <span className="metric-value">{passRate != null ? `${passRate}%` : '—'}</span>
+              <span className="meta">{withVerdict.length} verified runs</span>
+            </div>
+            <div className="metric">
+              <span className="label">AIR-GAP COMPLIANCE</span>
+              <span className="metric-value">Compliant</span>
+              <span className="meta">No network egress by design</span>
+            </div>
           </section>
 
           <div className="history-filters">
@@ -105,60 +145,58 @@ export function HistoryPage() {
               className="text-input is-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search batch or path..."
-              aria-label="Search batch or path"
+              placeholder="Search job id or path..."
+              aria-label="Search job id or path"
             />
           </div>
 
-          <table className="audit">
-            <thead>
-              <tr>
-                <th>Batch</th>
-                <th>Timestamp</th>
-                <th>Source</th>
-                <th>Files</th>
-                <th className="is-right">Duration</th>
-                <th>Status</th>
-                <th className="is-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.batch}>
-                  <td className="audit-batch">{row.batch}</td>
-                  <td className="meta">{row.timestamp}</td>
-                  <td className="meta">{row.source}</td>
-                  <td>
-                    {row.files} <span className="meta">{row.loc}</span>
-                  </td>
-                  <td className="meta is-right">{row.duration}</td>
-                  <td>
-                    {row.status}
-                    {row.retries ? (
-                      <span className="meta audit-retry">{row.retries}</span>
-                    ) : null}
-                  </td>
-                  <td className="is-right">
-                    <div className="audit-actions">
-                      <button onClick={() => navigate('/diff')}>Diff</button>
-                      <button onClick={() => navigate('/pipeline')}>Log</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {loading ? <p className="meta">Loading…</p> : null}
+          {error ? <p className="meta is-error">{error}</p> : null}
 
-          <footer className="pager">
-            <span className="meta">
-              Showing {rows.length} of {AUDIT_TOTALS.all} runs
-            </span>
-            <div className="pager-controls">
-              <button className="is-disabled">Previous</button>
-              <span className="is-accent">1</span>
-              <button>Next</button>
-            </div>
-          </footer>
+          {!loading && !error ? (
+            <table className="audit">
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Timestamp</th>
+                  <th>Source</th>
+                  <th>LOC</th>
+                  <th className="is-right">Duration</th>
+                  <th>Status</th>
+                  <th className="is-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => (
+                  <tr key={row.job_id}>
+                    <td className="audit-batch">#{row.job_id.slice(0, 8)}</td>
+                    <td className="meta">{formatTimestamp(row.created_ts)}</td>
+                    <td className="meta">{row.source_path ?? row.filename ?? '(inline)'}</td>
+                    <td>{row.loc ?? '—'}</td>
+                    <td className="meta is-right">{formatSeconds(row.duration_ms)}</td>
+                    <td>
+                      {row.status.replace(/_/g, ' ')}
+                      {row.retry_count > 0 ? (
+                        <span className="meta audit-retry">
+                          {row.retry_count} {row.retry_count === 1 ? 'retry' : 'retries'}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="is-right">
+                      <div className="audit-actions">
+                        <button onClick={() => navigate('/diff')}>Diff</button>
+                        <button onClick={() => navigate('/pipeline')}>Log</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+
+          {!loading && !error && filtered.length === 0 ? (
+            <p className="meta">No runs yet — start one from Convert.</p>
+          ) : null}
         </div>
       </div>
     </div>

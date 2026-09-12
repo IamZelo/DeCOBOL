@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { getJob } from '../api/client'
 import { ExecutionLog, type LogLine } from '../components/ExecutionLog'
 import { TopNav } from '../components/TopNav'
 import { WorkflowGraph, type StepState } from '../components/WorkflowGraph'
@@ -6,6 +7,7 @@ import { PIPELINE_BATCH, PIPELINE_STEPS, TELEMETRY_SEED } from '../data/fixtures
 import { useConversion } from '../hooks/useConversion'
 import { useJobEvents } from '../hooks/useJobEvents'
 import { formatClock } from '../lib/format'
+import type { Job } from '../types'
 
 const SEED_STATES: Record<string, StepState> = {
   PARSER: 'done',
@@ -15,13 +17,39 @@ const SEED_STATES: Record<string, StepState> = {
   DOCUMENTER: 'pending',
 }
 
+const TERMINAL = new Set(['completed', 'completed_with_warnings', 'failed'])
+
 export function PipelinePage() {
   const { jobId } = useConversion()
   const { events } = useJobEvents(jobId)
   const [wrap, setWrap] = useState(false)
   const [autoscroll, setAutoscroll] = useState(true)
+  const [job, setJob] = useState<Job | null>(null)
 
   const live = events.length > 0
+
+  // Light polling just for header metadata (filename/class name/status) — the
+  // step graph and log both come from the live SSE stream above.
+  useEffect(() => {
+    if (!jobId) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
+    async function poll() {
+      try {
+        const j = await getJob(jobId!)
+        if (cancelled) return
+        setJob(j)
+        if (!TERMINAL.has(j.status)) timer = setTimeout(poll, 2000)
+      } catch {
+        /* header metadata is best-effort */
+      }
+    }
+    poll()
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [jobId])
 
   const lines: LogLine[] = useMemo(() => {
     if (!live) return TELEMETRY_SEED.map((l) => ({ ...l }) as LogLine)
@@ -61,25 +89,38 @@ export function PipelinePage() {
 
   const retryLabel = live
     ? (() => {
-        const r = [...events]
-          .reverse()
-          .find((e) => e.type === 'retry_scheduled')
+        const r = [...events].reverse().find((e) => e.type === 'retry_scheduled')
         const count = (r?.data as { retry_count?: number })?.retry_count
         const max = (r?.data as { max_retries?: number })?.max_retries
         return count != null ? `↳ retry cycle ${count}/${max ?? 3}:` : null
       })()
     : PIPELINE_BATCH.retry_cycle
 
+  const source = live ? job?.filename ?? '…' : PIPELINE_BATCH.source
+  const target = live
+    ? job?.result?.class_name
+      ? `${job.result.class_name}.java`
+      : '…'
+    : PIPELINE_BATCH.target
+  const statusLabel = live ? (job ? job.status.toUpperCase().replace(/_/g, ' ') : 'RUNNING') : 'ACTIVE'
+
   return (
     <div className="app">
       <TopNav
         right={
-          <>
-            <span>{PIPELINE_BATCH.batch}</span>
-            <span>JVM 21 TARGET</span>
-            <span>DAEMON :8080</span>
-            <button className="bracket">[PAUSE]</button>
-          </>
+          live ? (
+            <>
+              <span>JOB {jobId?.slice(0, 8)}</span>
+              <span>JVM 21 TARGET</span>
+            </>
+          ) : (
+            <>
+              <span>{PIPELINE_BATCH.batch}</span>
+              <span>JVM 21 TARGET</span>
+              <span>DAEMON :8080</span>
+              <button className="bracket">[PAUSE]</button>
+            </>
+          )
         }
       />
 
@@ -88,14 +129,18 @@ export function PipelinePage() {
           <section className="pipeline-active">
             <div className="pipeline-filebar">
               <h2 className="pipeline-title">
-                <b>{PIPELINE_BATCH.source}</b>
+                <b>{source}</b>
                 <span className="pipeline-arrow">→</span>
-                <b>{PIPELINE_BATCH.target}</b>
+                <b>{target}</b>
               </h2>
               <div className="pipeline-filemeta">
-                <span>{PIPELINE_BATCH.loc}</span>
-                <span>{PIPELINE_BATCH.dialect}</span>
-                <span className="is-accent">ACTIVE</span>
+                {!live ? (
+                  <>
+                    <span>{PIPELINE_BATCH.loc}</span>
+                    <span>{PIPELINE_BATCH.dialect}</span>
+                  </>
+                ) : null}
+                <span className="is-accent">{statusLabel}</span>
               </div>
             </div>
 

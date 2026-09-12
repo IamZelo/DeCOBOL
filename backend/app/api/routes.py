@@ -81,15 +81,10 @@ def health_check():
 
 @api_bp.route("/tools", methods=["GET"])
 def list_tools():
-    """Lists registered deterministic tools from docs/CONTRACTS.md §2.2."""
-    tools = [
-        {"name": "parse_cobol", "description": "COBOL source -> AST"},
-        {"name": "map_pic_type", "description": "PIC and usage clause -> Java type mapping"},
-        {"name": "render_java_skeleton", "description": "AST -> Java class boilerplate"},
-        {"name": "javac_compile", "description": "Compiles Java code and extracts compiler diagnostics"},
-        {"name": "semantic_checks", "description": "Deterministic AST checks for COBOL semantics"},
-    ]
-    return jsonify({"tools": tools})
+    """Lists registered deterministic tools straight off the registry, so this
+    can never drift from what call_tool() actually exposes (CONTRACTS §2.2)."""
+    from app.tools.registry import list_tools as registry_list_tools
+    return jsonify({"tools": registry_list_tools()})
 
 
 @api_bp.route("/parse", methods=["POST"])
@@ -162,29 +157,97 @@ def parse_endpoint():
 
 
 # ---------------------------------------------------------------------------
+# Workspace filesystem (docs/LOCAL_DEPLOYMENT_WORKFLOW.md — additive, not yet
+# in CONTRACTS.md §11)
+# ---------------------------------------------------------------------------
+
+@api_bp.route("/fs/tree", methods=["GET"])
+def fs_tree():
+    """Lists a directory under the mounted input/output workspace root."""
+    path = request.args.get("path", "")
+    root = request.args.get("root", "input")
+
+    from app.tools.registry import call_tool
+    res = call_tool("list_workspace_dir", path=path, root=root)
+    if not res.success:
+        return jsonify({"error": res.error}), 400
+    return jsonify(res.data)
+
+
+@api_bp.route("/fs/file", methods=["GET"])
+def fs_file():
+    """Reads one file's contents under the mounted input/output workspace root."""
+    path = request.args.get("path", "")
+    root = request.args.get("root", "input")
+
+    if not path:
+        return jsonify({"error": "Missing 'path' query parameter"}), 400
+
+    from app.tools.registry import call_tool
+    res = call_tool("read_workspace_file", path=path, root=root)
+    if not res.success:
+        return jsonify({"error": res.error}), 404
+    return jsonify(res.data)
+
+
+# ---------------------------------------------------------------------------
 # Conversion Jobs
 # ---------------------------------------------------------------------------
+
+def _cobol_filenames_under(rel_dir: str, recursive: bool) -> list[str]:
+    """Relative paths (from INPUT_ROOT) of every .cbl/.cpy file under rel_dir."""
+    from app.tools.registry import call_tool
+
+    found: list[str] = []
+    stack = [rel_dir]
+    while stack:
+        current = stack.pop()
+        res = call_tool("list_workspace_dir", path=current, root="input")
+        if not res.success:
+            continue
+        for entry in res.data.get("entries", []):
+            child_path = f"{current}/{entry['name']}" if current else entry["name"]
+            if entry["type"] == "dir":
+                if recursive:
+                    stack.append(child_path)
+            elif child_path.lower().endswith((".cbl", ".cpy", ".cob")):
+                found.append(child_path)
+    return found
+
 
 @api_bp.route("/convert", methods=["POST"])
 def submit_conversion():
     """
-    Submits conversion job matching docs/CONTRACTS.md §11:
+    Submits conversion job matching docs/CONTRACTS.md §11, extended per
+    docs/LOCAL_DEPLOYMENT_WORKFLOW.md with `source_path` as an alternative to
+    inline `cobol_code`:
     POST {"cobol_code": "...", "filename": "payroll.cob", "options": {}, "wait": false}
+    POST {"source_path": "jcl/payment.cbl", "options": {}, "wait": false}
     Returns 202 {"job_id": "...", "status": "queued"} or 200 with full Job record.
     """
     payload = request.get_json(silent=True) or {}
     cobol_code = payload.get("cobol_code", "").strip()
     filename = payload.get("filename", "program.cob")
+    source_path = payload.get("source_path")
     options = payload.get("options", {})
     wait = bool(payload.get("wait", False))
 
+    if source_path:
+        from app.tools.registry import call_tool
+        res = call_tool("read_workspace_file", path=source_path, root="input")
+        if not res.success:
+            return jsonify({"error": res.error}), 404
+        cobol_code = res.data["content"]
+        filename = source_path.rsplit("/", 1)[-1]
+
     if not cobol_code:
-        return jsonify({"error": "Missing or empty 'cobol_code' field"}), 400
+        return jsonify({"error": "Missing or empty 'cobol_code' (or unresolvable 'source_path')"}), 400
 
     job = job_store.create_job(
         raw_cobol=cobol_code,
         filename=filename,
         options=options,
+        source_path=source_path,
     )
 
     if wait:
@@ -196,6 +259,43 @@ def submit_conversion():
             "job_id": job.job_id,
             "status": "queued",
         }), 202
+
+
+@api_bp.route("/convert/batch", methods=["POST"])
+def submit_conversion_batch():
+    """
+    New per docs/LOCAL_DEPLOYMENT_WORKFLOW.md: fans out to one job per COBOL
+    file found under `source_dir` (relative to INPUT_ROOT), reusing the exact
+    same per-file pipeline as POST /api/convert — this is a loop at the API
+    layer, not a change to the orchestrator.
+    POST {"source_dir": "jcl", "recursive": true, "options": {}}
+    Returns 202 {"jobs": [{"job_id": ..., "source_path": ..., "status": "queued"}]}
+    """
+    payload = request.get_json(silent=True) or {}
+    source_dir = payload.get("source_dir", "")
+    recursive = bool(payload.get("recursive", True))
+    options = payload.get("options", {})
+
+    files = _cobol_filenames_under(source_dir, recursive)
+    if not files:
+        return jsonify({"error": f"No .cbl/.cpy/.cob files found under {source_dir!r}"}), 404
+
+    from app.tools.registry import call_tool
+    submitted = []
+    for rel_path in files:
+        res = call_tool("read_workspace_file", path=rel_path, root="input")
+        if not res.success:
+            continue
+        job = job_store.create_job(
+            raw_cobol=res.data["content"],
+            filename=rel_path.rsplit("/", 1)[-1],
+            options=options,
+            source_path=rel_path,
+        )
+        job_runner.submit_job(job)
+        submitted.append({"job_id": job.job_id, "source_path": rel_path, "status": "queued"})
+
+    return jsonify({"jobs": submitted}), 202
 
 
 @api_bp.route("/jobs", methods=["GET"])

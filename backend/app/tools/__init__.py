@@ -10,6 +10,7 @@ them here, once, on package import, means any ``from app.tools... import
 """
 
 from . import cobol_parser  # noqa: F401
+from . import filesystem  # noqa: F401
 from . import java_compiler  # noqa: F401
 from . import java_template  # noqa: F401
 from . import semantic_checks  # noqa: F401

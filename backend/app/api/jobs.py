@@ -15,6 +15,7 @@ from app.config import settings
 from app.orchestrator.events import Event, EventType
 from app.orchestrator.graph import run_pipeline
 from app.orchestrator.state import ConversionState
+from app.tools.registry import call_tool
 
 
 @dataclass
@@ -31,6 +32,13 @@ class Job:
     final_state: Optional[ConversionState] = None
     error: Optional[str] = None
     subscribers: List[queue.Queue] = field(default_factory=list)
+    # Set when the job was submitted by path (docs/LOCAL_DEPLOYMENT_WORKFLOW.md)
+    # rather than inline cobol_code — the relative path under INPUT_ROOT.
+    source_path: Optional[str] = None
+    # Relative path under OUTPUT_ROOT the final Java was written to, once the
+    # job finishes. None for inline-cobol_code jobs (nowhere meaningful to
+    # mirror them to) and for jobs still in progress.
+    output_path: Optional[str] = None
 
     @property
     def duration_ms(self) -> int:
@@ -48,6 +56,10 @@ class Job:
             "finished_ts": round(self.finished_ts, 3) if self.finished_ts else None,
             "duration_ms": self.duration_ms,
             "retry_count": self.retry_count,
+            # Additive per docs/LOCAL_DEPLOYMENT_WORKFLOW.md — null for jobs
+            # submitted with inline cobol_code.
+            "source_path": self.source_path,
+            "output_path": self.output_path,
         }
 
     def to_detail(self) -> Dict[str, Any]:
@@ -85,6 +97,8 @@ class Job:
             "finished_ts": round(self.finished_ts, 3) if self.finished_ts else None,
             "duration_ms": self.duration_ms,
             "retry_count": self.retry_count,
+            "source_path": self.source_path,
+            "output_path": self.output_path,
             "raw_cobol": self.raw_cobol,
             "result": result_payload,
             "agent_results": agent_results,
@@ -106,6 +120,7 @@ class JobStore:
         filename: Optional[str] = "program.cob",
         options: Optional[Dict[str, Any]] = None,
         job_id: Optional[str] = None,
+        source_path: Optional[str] = None,
     ) -> Job:
         job_id = job_id or uuid.uuid4().hex
         job = Job(
@@ -113,6 +128,7 @@ class JobStore:
             raw_cobol=raw_cobol,
             filename=filename,
             options=options or {},
+            source_path=source_path,
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -198,6 +214,25 @@ class JobRunner:
             job.final_state = final_state
             job.status = final_state.get("status", "completed")
             job.retry_count = final_state.get("retry_count", 0)
+
+            # Per docs/LOCAL_DEPLOYMENT_WORKFLOW.md step 5: a path-submitted
+            # job's output lands back on disk under OUTPUT_ROOT, mirroring the
+            # input's relative directory. Inline cobol_code jobs (no
+            # source_path) have nowhere meaningful to mirror to, so they stay
+            # preview-only.
+            if job.source_path and job.status != "failed":
+                resolved_code = final_state.get("optimized_code") or final_state.get("java_code") or ""
+                ast = final_state.get("parsed_ast") or {}
+                class_name = "".join(
+                    part.capitalize()
+                    for part in ast.get("program_id", "CobolProgram").replace("-", "_").split("_")
+                ) or "CobolProgram"
+                rel_dir = job.source_path.rsplit("/", 1)[0] if "/" in job.source_path else ""
+                out_rel_path = f"{rel_dir}/{class_name}.java" if rel_dir else f"{class_name}.java"
+
+                write_res = call_tool("write_output_file", path=out_rel_path, content=resolved_code)
+                if write_res.success:
+                    job.output_path = out_rel_path
         except Exception as exc:
             job.status = "failed"
             job.error = str(exc)

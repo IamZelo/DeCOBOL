@@ -73,6 +73,21 @@ class Settings:
     # Project directories
     project_root: Path = field(default_factory=lambda: _PROJECT_ROOT)
 
+    # Local filesystem workspace (docs/LOCAL_DEPLOYMENT_WORKFLOW.md).
+    # These are the only two paths the fs tools may ever read/write.
+    # Defaults point at the vendored demo COBOL and a scratch output folder so
+    # the backend is immediately useful with no .env at all. Inside Docker,
+    # docker-compose.yml overrides both to the container's mount points
+    # (/workspace/input, /workspace/output) — the env var name is the only
+    # thing that has to stay the same between "run standalone" and "run in
+    # Docker".
+    input_root: str = field(
+        default_factory=lambda: os.getenv("INPUT_ROOT", str(_PROJECT_ROOT / "examples" / "lendwise"))
+    )
+    output_root: str = field(
+        default_factory=lambda: os.getenv("OUTPUT_ROOT", str(_PROJECT_ROOT / ".decobol-output"))
+    )
+
 
 # Global settings singleton
 settings = Settings()

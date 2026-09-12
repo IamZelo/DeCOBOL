@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { TopNav } from '../components/TopNav'
 import { useConversion } from '../hooks/useConversion'
+import { useWorkspace } from '../hooks/useWorkspace'
 import { formatBytes } from '../lib/format'
 import type { PrecisionMode, TargetRuntime } from '../hooks/useConversion'
 
@@ -28,8 +29,8 @@ const PRECISIONS: { id: PrecisionMode; title: string; note: string }[] = [
 
 export function ConvertPage() {
   const navigate = useNavigate()
+  const { selected, findNode, root } = useWorkspace()
   const {
-    selectedFiles,
     javaPackage,
     runtime,
     precision,
@@ -43,10 +44,11 @@ export function ConvertPage() {
     startConversion,
   } = useConversion()
 
-  const totalLines = selectedFiles.reduce((n, f) => n + f.lines, 0)
+  const selectedNodes = selected.map((path) => findNode(path)).filter(Boolean)
+  const totalBytes = selectedNodes.reduce((n, node) => n + (node?.size ?? 0), 0)
 
   async function onStart() {
-    await startConversion()
+    await startConversion(selected)
     navigate('/pipeline')
   }
 
@@ -56,7 +58,7 @@ export function ConvertPage() {
         right={
           <>
             <span className="dot" />
-            <span>Air-gapped daemon :8080</span>
+            <span>{root ?? 'Air-gapped daemon :8080'}</span>
           </>
         }
       />
@@ -75,29 +77,36 @@ export function ConvertPage() {
             <section className="panel convert-card">
               <header className="convert-card-head">
                 <span className="label">
-                  Selected sources ({selectedFiles.length})
+                  Selected sources ({selected.length})
                 </span>
-                <span className="meta">{totalLines} lines</span>
+                <span className="meta">{formatBytes(totalBytes)}</span>
               </header>
 
               <div className="convert-manifest">
-                {selectedFiles.map((file) => (
-                  <div className="convert-source" key={file.path}>
-                    <div className="convert-source-row">
-                      <b>{file.path}</b>
-                      <span className="meta">{formatBytes(file.size_bytes)}</span>
-                    </div>
-                    <span className="meta">
-                      {file.lines} lines
-                      {file.linkage ? ` · ${file.linkage}` : ''}
-                    </span>
-                  </div>
-                ))}
+                {selected.length === 0 ? (
+                  <p className="meta">
+                    No files selected. Go back to Workspace and pick some.
+                  </p>
+                ) : (
+                  selected.map((path) => {
+                    const node = findNode(path)
+                    return (
+                      <div className="convert-source" key={path}>
+                        <div className="convert-source-row">
+                          <b>{path}</b>
+                          <span className="meta">
+                            {node?.size != null ? formatBytes(node.size) : ''}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
               </div>
 
               <footer className="convert-card-foot">
                 <span className="meta">Output directory</span>
-                <span className="convert-outdir">~/decobol-output/</span>
+                <span className="convert-outdir">OUTPUT_ROOT</span>
               </footer>
             </section>
 
@@ -193,9 +202,7 @@ export function ConvertPage() {
                 <div className="convert-buttons">
                   <button
                     className="btn-primary"
-                    disabled={
-                      !confirmLocal || submitting || selectedFiles.length === 0
-                    }
+                    disabled={!confirmLocal || submitting || selected.length === 0}
                     onClick={onStart}
                   >
                     {submitting ? 'Starting…' : 'Start Conversion Pipeline'}

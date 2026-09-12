@@ -1135,3 +1135,72 @@
   opacity: 0.4;
   cursor: default;
 }
+
+/* ========== Real-data additions: workspace tree, empty states, graph ========== */
+
+.is-error {
+  color: var(--accent);
+}
+
+.explorer-root {
+  display: block;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.explorer-status {
+  padding: 12px;
+}
+
+.tree-disclosure {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.tree-disclosure:hover .tree-dir-name {
+  color: var(--text);
+}
+
+.workspace-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.depgraph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.depgraph-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.depgraph-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.depgraph-panel {
+  padding: 16px;
+  overflow: auto;
+}
+
+.depgraph-scroll {
+  overflow: auto;
+}

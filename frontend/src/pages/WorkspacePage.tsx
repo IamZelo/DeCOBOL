@@ -2,15 +2,16 @@ import { useNavigate } from 'react-router-dom'
 import { CodeEditor } from '../components/CodeEditor'
 import { TopNav } from '../components/TopNav'
 import { UploadPanel } from '../components/UploadPanel'
-import { ACTIVE_FILE_META } from '../data/fixtures'
-import { useConversion } from '../hooks/useConversion'
+import { useWorkspace } from '../hooks/useWorkspace'
 import { formatBytes } from '../lib/format'
 
 export function WorkspacePage() {
   const navigate = useNavigate()
-  const { files, selected, activePath, selectedFiles } = useConversion()
-  const active = files.find((f) => f.path === activePath) ?? files[0]
-  const selectedBytes = selectedFiles.reduce((n, f) => n + f.size_bytes, 0)
+  const { selected, activePath, activeContent, activeLoading, activeError, root } =
+    useWorkspace()
+
+  const activeName = activePath?.split('/').pop() ?? ''
+  const selectedBytes = 0 // sizes aren't fetched for unread files; shown per-row instead
 
   return (
     <div className="app">
@@ -18,17 +19,7 @@ export function WorkspacePage() {
         right={
           <>
             <span className="dot is-live" />
-            <span>/workspace/input</span>
-            <button className="nav-icon" aria-label="Open input directory">
-              <svg viewBox="0 0 14 11" width="13" height="10">
-                <path
-                  d="M.6.6h4.1l1.2 1.5h7.5v8.3H.6z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.1"
-                />
-              </svg>
-            </button>
+            <span>{root ?? '/workspace/input'}</span>
           </>
         }
       />
@@ -37,42 +28,40 @@ export function WorkspacePage() {
         <UploadPanel />
 
         <main className="workspace-main">
-          <div className="workspace-filebar">
-            <div className="workspace-filebar-id">
-              <h2>{active.name}</h2>
-              <span className="meta">{active.path}</span>
-            </div>
-            <div className="workspace-filebar-meta">
-              <span>{ACTIVE_FILE_META.dialect}</span>
-              <span>·</span>
-              <span>{ACTIVE_FILE_META.encoding}</span>
-              <span>·</span>
-              <span>{formatBytes(active.size_bytes)}</span>
-            </div>
-          </div>
+          {activePath ? (
+            <>
+              <div className="workspace-filebar">
+                <div className="workspace-filebar-id">
+                  <h2>{activeName}</h2>
+                  <span className="meta">{activePath}</span>
+                </div>
+                <div className="workspace-filebar-meta">
+                  {activeContent != null ? (
+                    <span>{formatBytes(new Blob([activeContent]).size)}</span>
+                  ) : null}
+                </div>
+              </div>
 
-          <div className="workspace-viewer">
-            <CodeEditor code={active.cobol_code} />
-          </div>
-
-          <div className="workspace-deps">
-            <div className="workspace-deps-list">
-              <span className="meta">Resolved copybooks:</span>
-              {ACTIVE_FILE_META.resolved_copybooks.map((name, i) => (
-                <span key={name}>
-                  {i > 0 ? <span className="meta">·</span> : null}
-                  <span className="workspace-dep">{name}</span>
-                </span>
-              ))}
+              <div className="workspace-viewer">
+                {activeLoading ? <p className="meta">Loading…</p> : null}
+                {activeError ? <p className="meta is-error">{activeError}</p> : null}
+                {activeContent != null && !activeLoading ? (
+                  <CodeEditor code={activeContent} />
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <div className="workspace-empty">
+              <p className="meta">Select a file from the tree to preview it.</p>
             </div>
-            <span className="meta">Target: {ACTIVE_FILE_META.target}</span>
-          </div>
+          )}
         </main>
       </div>
 
       <footer className="workspace-actions">
         <span className="meta">
-          {selected.length} files selected ({formatBytes(selectedBytes)})
+          {selected.length} files selected
+          {selectedBytes ? ` (${formatBytes(selectedBytes)})` : ''}
         </span>
         <div className="workspace-actions-buttons">
           <button className="btn btn-round">Dry run AST</button>

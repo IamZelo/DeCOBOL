@@ -1,4 +1,4 @@
-import type { DiffLine } from '../data/fixtures'
+import type { DiffLine } from '../lib/diff'
 
 interface Side {
   name: string

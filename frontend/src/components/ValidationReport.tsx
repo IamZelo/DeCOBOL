@@ -27,8 +27,8 @@ export function ValidationReport({
       </header>
 
       <div className="findings-list">
-        {findings.map((finding) => (
-          <article className="finding" key={finding.check}>
+        {findings.map((finding, i) => (
+          <article className="finding" key={`${finding.check}-${i}`}>
             <span className={`finding-pip is-${finding.severity}`} />
             <div className="finding-body">
               <div className="finding-title">{finding.message}</div>

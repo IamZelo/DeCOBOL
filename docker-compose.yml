@@ -39,6 +39,14 @@ services:
       dockerfile: backend/Dockerfile
     ports:
       - "5000:5000"
+    volumes:
+      # docs/LOCAL_DEPLOYMENT_WORKFLOW.md — the client's real COBOL repo,
+      # read-only, and a scratch folder converted Java gets written into.
+      # Defaults match backend/app/config.py's own standalone defaults, so
+      # `docker compose up` with no .env behaves the same as running the
+      # backend directly on the host.
+      - ${DECOBOL_INPUT_DIR:-./examples/lendwise}:/workspace/input:ro
+      - ${DECOBOL_OUTPUT_DIR:-./.decobol-output}:/workspace/output:rw
     environment:
       LLM_BASE_URL: http://llm:8080/v1
       LLM_API_KEY: ${LLM_API_KEY:-sk-no-key-required}
@@ -53,6 +61,10 @@ services:
       MAX_RETRIES: ${MAX_RETRIES:-2}
       MAX_WORKERS: ${MAX_WORKERS:-2}
       JAVA_PACKAGE: ${JAVA_PACKAGE:-}
+      # Fixed container-side mount points — only DECOBOL_INPUT_DIR/OUTPUT_DIR
+      # (the host paths) ever need to change between environments.
+      INPUT_ROOT: /workspace/input
+      OUTPUT_ROOT: /workspace/output
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
       interval: 10s

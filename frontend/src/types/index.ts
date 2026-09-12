@@ -84,6 +84,48 @@ export interface Documentation {
   unsupported: { feature: string; count: number; detail: string }[]
 }
 
+/** CONTRACTS §3.5 — a subset; only the fields the dependency graph needs. */
+export interface AstParagraph {
+  name: string
+  section: string | null
+  performs: string[]
+  start_line: number
+  end_line: number
+}
+
+/** CONTRACTS §3.7 */
+export interface AstCopybook {
+  name: string
+  mechanism: 'COPY' | 'EXEC_SQL_INCLUDE'
+  resolved: boolean
+  source_line: number
+}
+
+/** CONTRACTS §3.4 */
+export interface AstFileDescriptor {
+  cobol_name: string
+  assign_to: string
+  organization: string
+  operations: string[]
+}
+
+/** CONTRACTS §3.8 — a subset. */
+export interface AstSqlBlock {
+  operation: string
+  tables: string[]
+  paragraph: string | null
+}
+
+/** CONTRACTS §3.2 — a subset; only the fields the dependency graph needs. */
+export interface ParsedAst {
+  program_id: string
+  paragraphs: AstParagraph[]
+  copybooks: AstCopybook[]
+  files: AstFileDescriptor[]
+  sql_blocks: AstSqlBlock[]
+  [key: string]: unknown
+}
+
 export interface JobResult {
   program_id: string
   class_name: string
@@ -91,7 +133,7 @@ export interface JobResult {
   java_code: string
   validation: Validation | null
   documentation: Documentation | null
-  parsed_ast: Record<string, unknown> | null
+  parsed_ast: ParsedAst | null
 }
 
 export interface AgentResultSummary {
@@ -111,6 +153,10 @@ export interface Job {
   finished_ts: number | null
   duration_ms: number | null
   retry_count: number
+  /** Additive per docs/LOCAL_DEPLOYMENT_WORKFLOW.md — null for inline cobol_code jobs. */
+  source_path: string | null
+  /** Set once a source_path job finishes; null until then and for inline jobs. */
+  output_path: string | null
   raw_cobol?: string
   result: JobResult | null
   agent_results?: AgentResultSummary[]
@@ -138,14 +184,23 @@ export interface ConvertOptions {
   [key: string]: unknown
 }
 
-/** Local-only: a COBOL file staged in the workspace explorer. */
-export interface SourceFile {
-  path: string
+/** `GET /api/fs/tree` entry (docs/LOCAL_DEPLOYMENT_WORKFLOW.md, additive). */
+export interface FsEntry {
   name: string
-  dir: string
-  size_bytes: number
-  lines: number
-  /** Human note shown under the name on the Convert screen. */
-  linkage: string
-  cobol_code: string
+  type: 'file' | 'dir'
+  size?: number
+}
+
+export interface FsTree {
+  root: string
+  path: string
+  entries: FsEntry[]
+}
+
+/** `GET /api/fs/file` response. */
+export interface FsFile {
+  path: string
+  root: 'input' | 'output'
+  content: string
+  size: number
 }

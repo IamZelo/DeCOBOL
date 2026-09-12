@@ -1,8 +1,11 @@
-import type { ConvertOptions, Health, Job, JobSummary } from '../types'
+import type { ConvertOptions, FsFile, FsTree, Health, Job, JobSummary } from '../types'
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
-  if (!res.ok) throw new Error(`${path} → ${res.status}`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.error ?? `${path} → ${res.status}`)
+  }
   return res.json() as Promise<T>
 }
 
@@ -18,17 +21,52 @@ export function getJob(jobId: string) {
   return get<Job>(`/api/jobs/${jobId}`)
 }
 
-export async function convert(body: {
-  cobol_code: string
-  filename?: string
-  options?: ConvertOptions
-}): Promise<{ job_id: string; status: string }> {
+/** `GET /api/fs/tree` — docs/LOCAL_DEPLOYMENT_WORKFLOW.md (additive). */
+export function getFsTree(path = '', root: 'input' | 'output' = 'input') {
+  const qs = new URLSearchParams({ path, root })
+  return get<FsTree>(`/api/fs/tree?${qs}`)
+}
+
+/** `GET /api/fs/file` — docs/LOCAL_DEPLOYMENT_WORKFLOW.md (additive). */
+export function getFsFile(path: string, root: 'input' | 'output' = 'input') {
+  const qs = new URLSearchParams({ path, root })
+  return get<FsFile>(`/api/fs/file?${qs}`)
+}
+
+type ConvertRequest =
+  | { source_path: string; cobol_code?: undefined; filename?: undefined }
+  | { cobol_code: string; filename?: string; source_path?: undefined }
+
+export async function convert(
+  body: ConvertRequest & { options?: ConvertOptions },
+): Promise<{ job_id: string; status: string }> {
   const res = await fetch('/api/convert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...body, wait: false }),
   })
-  if (!res.ok) throw new Error(`/api/convert → ${res.status}`)
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => null)
+    throw new Error(errBody?.error ?? `/api/convert → ${res.status}`)
+  }
+  return res.json()
+}
+
+/** `POST /api/convert/batch` — docs/LOCAL_DEPLOYMENT_WORKFLOW.md (additive). */
+export async function convertBatch(body: {
+  source_dir: string
+  recursive?: boolean
+  options?: ConvertOptions
+}): Promise<{ jobs: { job_id: string; source_path: string; status: string }[] }> {
+  const res = await fetch('/api/convert/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => null)
+    throw new Error(errBody?.error ?? `/api/convert/batch → ${res.status}`)
+  }
   return res.json()
 }
 
