@@ -12,6 +12,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 : "${LLAMA_GPU_LAYERS:=99}"
 : "${LLAMA_PORT:=8080}"
 : "${LLM_MODEL:=decobol-local}"
+# Quantized KV cache roughly halves (q8_0) or quarters (q4_0) the VRAM the
+# context window costs, so LLAMA_CTX_SIZE can go up without a VRAM overflow.
+# Set to "f16" to disable quantization if your build/GPU doesn't like it.
+: "${LLAMA_KV_CACHE_TYPE:=q8_0}"
+# Flash attention cuts KV-cache memory further and is required by some
+# quantized cache types above. Set to 0 to disable if unsupported.
+: "${LLAMA_FLASH_ATTN:=1}"
 
 MODEL_PATH="llm/models/${LLAMA_MODEL_FILE}"
 if [ ! -f "$MODEL_PATH" ]; then
@@ -25,8 +32,15 @@ if ! command -v llama-server >/dev/null 2>&1; then
   exit 1
 fi
 
+FLASH_ATTN_FLAG=()
+if [ "$LLAMA_FLASH_ATTN" = "1" ]; then
+  FLASH_ATTN_FLAG=(-fa)
+fi
+
 exec llama-server \
   -m "$MODEL_PATH" \
   --host 127.0.0.1 --port "$LLAMA_PORT" \
   -c "$LLAMA_CTX_SIZE" -ngl "$LLAMA_GPU_LAYERS" \
+  --cache-type-k "$LLAMA_KV_CACHE_TYPE" --cache-type-v "$LLAMA_KV_CACHE_TYPE" \
+  "${FLASH_ATTN_FLAG[@]}" \
   --alias "$LLM_MODEL" --jinja

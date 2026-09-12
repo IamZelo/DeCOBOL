@@ -108,6 +108,8 @@ class ValidatorAgent(Agent):
                     f.get("suggestion"),
                 )
                 msg = f"Semantic Error [{f.get('check')}]: {f.get('message')}"
+                if f.get("cobol_ref"):
+                    msg += f"\n  COBOL ref: {f.get('cobol_ref')}"
                 if f.get("suggestion"):
                     msg += f"\n  Suggested Fix: {f.get('suggestion')}"
                 feedback_lines.append(msg)

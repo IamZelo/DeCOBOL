@@ -24,6 +24,28 @@ logger = logging.getLogger(__name__)
 
 PROMPT_FILE = Path(__file__).resolve().parent / "prompts" / "converter.md"
 
+# Rough chars-per-token heuristic (no tokenizer for the local GGUF model is
+# available to the backend) — good enough for a safety margin, not exact.
+_CHARS_PER_TOKEN = 4
+# Headroom for chat-template overhead (role wrappers, special tokens) so the
+# estimate stays conservative rather than exact.
+_PROMPT_OVERHEAD_TOKENS = 256
+
+
+def _estimate_tokens(text: str) -> int:
+    return len(text) // _CHARS_PER_TOKEN
+
+
+def _prompt_token_budget() -> int:
+    """Max input tokens that leave room for the model's reply within LLAMA_CTX_SIZE.
+
+    llama-server's context window (-c / LLAMA_CTX_SIZE) holds prompt tokens
+    *and* generated tokens together. Raising LLAMA_CTX_SIZE to fit a bigger
+    file is what overflows VRAM; the safer lever is to never send a prompt
+    that wouldn't fit the context you've already got.
+    """
+    return max(settings.llama_ctx_size - settings.llm_max_tokens - _PROMPT_OVERHEAD_TOKENS, 0)
+
 
 def _load_converter_prompt() -> str:
     if PROMPT_FILE.exists():
@@ -85,6 +107,54 @@ class ConverterAgent(Agent):
 
         java_code = ""
         notes: List[str] = []
+
+        # Guard against overflowing LLAMA_CTX_SIZE *before* calling the model.
+        # A prompt that doesn't fit either gets silently truncated by
+        # llama-server or blows past whatever VRAM the KV cache was sized
+        # for — neither is something to discover mid-request. Skip straight
+        # to the deterministic skeleton instead, with a clear reason why.
+        estimated_tokens = _estimate_tokens(system_prompt) + _estimate_tokens(user_prompt)
+        budget = _prompt_token_budget()
+        if estimated_tokens > budget:
+            logger.warning(
+                "Converter prompt (~%d tokens) exceeds context budget (~%d of LLAMA_CTX_SIZE=%d, "
+                "less LLM_MAX_TOKENS=%d reply room); falling back to Jinja skeleton without calling the LLM",
+                estimated_tokens, budget, settings.llama_ctx_size, settings.llm_max_tokens,
+            )
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            return AgentResult(
+                agent=self.name,
+                status="success",
+                result={
+                    "java_code": skeleton_code,
+                    "class_name": class_name,
+                    "notes": [
+                        "Fell back to deterministic Jinja skeleton: this program's procedure "
+                        "division is too large to fit LLAMA_CTX_SIZE alongside a reply — the "
+                        "LLM was not called."
+                    ],
+                },
+                confidence=0.75,
+                errors=[{
+                    "stage": "converter",
+                    "kind": "llm_prompt_too_large",
+                    "message": (
+                        f"Estimated prompt (~{estimated_tokens} tokens) exceeds the ~{budget}-token "
+                        f"budget left by LLAMA_CTX_SIZE={settings.llama_ctx_size} after reserving "
+                        f"LLM_MAX_TOKENS={settings.llm_max_tokens} for the reply. Raising "
+                        "LLAMA_CTX_SIZE further will grow VRAM usage — see llm/start_llama_server.sh "
+                        "for KV-cache-quantization flags (--cache-type-k/-v, -fa) that buy more "
+                        "context per GB before you need to."
+                    ),
+                    "recoverable": True,
+                    "ts": time.time(),
+                }],
+                next_action="continue",
+                duration_ms=duration_ms,
+                used_llm=False,
+                used_fallback=True,
+                tools_called=tools_called,
+            )
 
         try:
             llm_reply = self.ask_llm(system=system_prompt, user=user_prompt)
@@ -204,7 +274,7 @@ class ConverterAgent(Agent):
                 f"- For [scale-mismatch]: set scale to match the PIC clause scale.\n"
                 f"- For compiler errors: fix syntax, undeclared variables, or missing imports."
             )
-            prev_code = state.get("java_code")
+            prev_code = state.get("optimized_code") or state.get("java_code")
             if prev_code:
                 retry_section += (
                     f"\n\n### PREVIOUS JAVA IMPLEMENTATION (TO REVISE):\n"
