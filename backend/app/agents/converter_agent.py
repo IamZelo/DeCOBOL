@@ -192,17 +192,25 @@ class ConverterAgent(Agent):
         # Retry feedback if this is a correction pass
         if feedback:
             attempt = retry_count + 1
-            sections.append(
+            retry_section = (
                 f"### CRITICAL RETRY FEEDBACK (Attempt {attempt}):\n"
                 f"The previous generation failed validation. You MUST fix every issue below:\n"
                 f"{feedback}\n\n"
                 f"Specific requirements:\n"
                 f"- For [move-padding]: right-pad string assignments using String.format(\"%-Ns\", value).\n"
+                f"- For [numeric-truncation]: truncate high-order digits using modulo (e.g. target = value % 1000 for PIC 9(3)) or remainder() for BigDecimal.\n"
                 f"- For [rounding-mode]: explicitly call .setScale(scale, RoundingMode.HALF_UP) on BigDecimal calculations.\n"
                 f"- For [decimal-precision]: use java.math.BigDecimal instead of float or double.\n"
                 f"- For [scale-mismatch]: set scale to match the PIC clause scale.\n"
                 f"- For compiler errors: fix syntax, undeclared variables, or missing imports."
             )
+            prev_code = state.get("java_code")
+            if prev_code:
+                retry_section += (
+                    f"\n\n### PREVIOUS JAVA IMPLEMENTATION (TO REVISE):\n"
+                    f"```java\n{prev_code}\n```"
+                )
+            sections.append(retry_section)
 
         sections.append(
             "### REQUIRED OUTPUT FORMAT:\n"

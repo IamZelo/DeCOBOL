@@ -96,13 +96,23 @@ class ValidatorAgent(Agent):
         if not passed:
             feedback_lines = []
             if compile_failed:
-                feedback_lines.append(f"Compiler Error:\n{compile_data.get('stderr', '').strip()}")
+                stderr_msg = compile_data.get('stderr', '').strip()
+                logger.warning("Validation compile failed: %s", stderr_msg)
+                feedback_lines.append(f"Compiler Error:\n{stderr_msg}")
             for f in error_findings:
+                logger.warning(
+                    "Validation semantic error finding [%s] on COBOL ref '%s': %s (suggestion: %s)",
+                    f.get("check"),
+                    f.get("cobol_ref"),
+                    f.get("message"),
+                    f.get("suggestion"),
+                )
                 msg = f"Semantic Error [{f.get('check')}]: {f.get('message')}"
                 if f.get("suggestion"):
                     msg += f"\n  Suggested Fix: {f.get('suggestion')}"
                 feedback_lines.append(msg)
             retry_feedback = "\n\n".join(feedback_lines)
+            logger.info("Generated retry feedback for attempt %d:\n%s", retry_count + 1, retry_feedback)
 
         validation_report: ValidationReport = {
             "passed": passed,

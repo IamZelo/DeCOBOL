@@ -121,6 +121,19 @@ def test_numeric_truncation_flagged_when_literal_survives_verbatim():
     hits = _findings_by_check(findings, "numeric-truncation")
     assert len(hits) == 1
     assert hits[0]["severity"] == "error"
+    assert hits[0]["suggestion"] == "y = 12345 % 1000"
+
+
+def test_numeric_truncation_not_flagged_when_modulo_applied():
+    var = _var(java_type="int", digits=3, java_name="y", pic="9(3)")
+    ast = _ast(
+        variables=[var],
+        statements=[{"kind": "MOVE", "raw": "MOVE 12345 TO Y", "targets": ["WS-X"],
+                     "sources": ["12345"], "rounded": False,
+                     "on_size_error": False, "paragraph": "P", "line": 5}],
+    )
+    findings = semantic_checks(ast, "this.y = 12345 % 1000;")["findings"]
+    assert _findings_by_check(findings, "numeric-truncation") == []
 
 
 def test_numeric_truncation_not_flagged_when_digits_fit():

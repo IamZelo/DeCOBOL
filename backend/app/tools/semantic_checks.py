@@ -24,10 +24,13 @@ assignment cannot be located in it, the check abstains rather than guess.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from .registry import tool
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["semantic_checks"]
 
@@ -128,15 +131,21 @@ def _check_numeric_truncation(var: dict, source: str, st: dict, java_code: str,
     # truncated it to the PIC's storage width.
     if source not in rhs:
         return
+    # If modulo or remainder is already applied, truncation was handled
+    if any(p in rhs for p in ("%", "remainder", "floorMod", "mod(")):
+        return
+    mod_val = 10 ** var["digits"]
+    if var["java_type"] in ("int", "long"):
+        suggestion = f'{var["java_name"]} = {source} % {mod_val}'
+    else:
+        suggestion = f'{var["java_name"]} = new BigDecimal("{source}").remainder(new BigDecimal("{mod_val}"))'
     findings.append(_finding(
         "numeric-truncation", "error",
         f'MOVE {source} TO {var["name"]}: PIC holds {var["digits"]} digits, '
         f'but {source} has {digits}; COBOL truncates high-order digits and '
         f'the generated Java does not.',
         cobol_ref=var["name"], cobol_line=st.get("line"),
-        suggestion=f'{var["java_name"]} = {var["java_name"]}'
-                   f'.remainder(BigDecimal.TEN.pow({var["digits"]}))'
-                   if var["java_type"] == "BigDecimal" else None,
+        suggestion=suggestion,
     ))
 
 
@@ -321,5 +330,6 @@ def semantic_checks(ast: dict[str, Any], java_code: str = "") -> dict:
     for fd in ast.get("files", []):
         _check_file(fd, findings)
     _check_subprogram(ast, findings)
-
+    if findings:
+        logger.debug("semantic_checks produced %d findings: %s", len(findings), findings)
     return {"findings": findings}

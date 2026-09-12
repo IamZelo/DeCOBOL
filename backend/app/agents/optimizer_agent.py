@@ -140,4 +140,8 @@ class OptimizerAgent(Agent):
         if "public static void main" in original and "public static void main" not in candidate:
             return False
 
+        # Constraint 5: Preserve numeric truncation (modulo or remainder) if present
+        if ("%" in original or "remainder" in original) and ("%" not in candidate and "remainder" not in candidate):
+            return False
+
         return True
