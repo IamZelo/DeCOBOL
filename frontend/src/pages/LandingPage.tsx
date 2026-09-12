@@ -8,6 +8,12 @@ import {
   IconShield,
   IconTerminal,
 } from '../components/icons'
+import { useWorkspace } from '../hooks/useWorkspace'
+
+/** The default INPUT_ROOT (backend/app/config.py) when no .env override is set. */
+function isDefaultInput(root: string) {
+  return root.replace(/\\/g, '/').endsWith('examples/lendwise')
+}
 
 const TRAP_ROWS: {
   cobol: string
@@ -64,6 +70,8 @@ const AGENTS: {
 ]
 
 export function LandingPage() {
+  const { root, error: workspaceError } = useWorkspace()
+
   return (
     <div className="landing">
       <header className="landing-header">
@@ -93,6 +101,23 @@ export function LandingPage() {
         <p className="landing-footnote is-centered">
           No sign-up. Runs against your own local model.
         </p>
+        {workspaceError ? (
+          <p className="landing-input-note is-centered is-warning">
+            Can&rsquo;t reach the backend to read the input directory. Start it,
+            then set <code>INPUT_ROOT</code> and <code>OUTPUT_ROOT</code> in
+            your <code>.env</code> before launching.
+          </p>
+        ) : root ? isDefaultInput(root) ? (
+          <p className="landing-input-note is-centered is-warning">
+            Using the bundled sample input (<code>examples/lendwise</code>).
+            Set <code>INPUT_ROOT</code> and <code>OUTPUT_ROOT</code> in your{' '}
+            <code>.env</code> to point at your own COBOL project.
+          </p>
+        ) : (
+          <p className="landing-input-note is-centered">
+            Input directory: <code>{root}</code>
+          </p>
+        ) : null}
       </section>
 
       <section className="landing-section">

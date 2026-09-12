@@ -2,9 +2,18 @@ import type { ParsedAst } from '../types'
 
 export type GraphNodeKind = 'program' | 'paragraph' | 'copybook' | 'file' | 'table'
 
+/**
+ * Visual category, independent of `kind`: `agent` marks a paragraph the
+ * converter actually sent to the LLM (as opposed to the deterministic Jinja
+ * fallback); `external` covers everything the program reaches outside its
+ * own procedure division — copybooks, files, SQL tables.
+ */
+export type GraphNodeCategory = 'standard' | 'agent' | 'external'
+
 export interface GraphNode {
   id: string
   kind: GraphNodeKind
+  category: GraphNodeCategory
   label: string
   sublabel?: string
   x: number
@@ -26,14 +35,14 @@ export interface DependencyGraph {
   height: number
 }
 
-const ROW_H = 34
+const ROW_H = 64
 const NODE_H = 24
-const COL_PROGRAM_X = 16
-const COL_PARAGRAPH_X = 280
-const COL_EXTERNAL_X = 640
-const PROGRAM_W = 220
-const PARAGRAPH_W = 300
-const EXTERNAL_W = 260
+const COL_PROGRAM_X = 24
+const COL_PARAGRAPH_X = 380
+const COL_EXTERNAL_X = 820
+const PROGRAM_W = 240
+const PARAGRAPH_W = 320
+const EXTERNAL_W = 280
 
 /**
  * Lays out the COBOL program's own structure as a graph: the program at the
@@ -42,22 +51,29 @@ const EXTERNAL_W = 260
  * (COPY/EXEC SQL INCLUDE copybooks, file I/O, SQL tables). Built entirely
  * from CONTRACTS §3 fields the backend already returns per job — no new
  * backend surface needed.
+ *
+ * `agentRefactored` reflects the converter's whole-job `used_fallback` flag
+ * (there's no per-paragraph LLM/fallback record yet), so every paragraph in
+ * a given job is categorized the same way: `agent` when the LLM actually
+ * wrote the Java, `standard` when the deterministic skeleton did.
  */
-export function buildDependencyGraph(ast: ParsedAst): DependencyGraph {
+export function buildDependencyGraph(ast: ParsedAst, agentRefactored = false): DependencyGraph {
   const nodes: GraphNode[] = []
   const edges: GraphEdge[] = []
 
   const programId = `program:${ast.program_id}`
-  nodes.push({
+  const programNode: GraphNode = {
     id: programId,
     kind: 'program',
+    category: 'standard',
     label: ast.program_id,
     sublabel: 'PROGRAM-ID',
     x: COL_PROGRAM_X,
     y: 8,
     w: PROGRAM_W,
     h: NODE_H,
-  })
+  }
+  nodes.push(programNode)
 
   const paragraphs = ast.paragraphs ?? []
   const paragraphIds = new Map<string, string>()
@@ -67,6 +83,7 @@ export function buildDependencyGraph(ast: ParsedAst): DependencyGraph {
     nodes.push({
       id,
       kind: 'paragraph',
+      category: agentRefactored ? 'agent' : 'standard',
       label: p.name,
       sublabel: p.section ?? undefined,
       x: COL_PARAGRAPH_X,
@@ -102,6 +119,7 @@ export function buildDependencyGraph(ast: ParsedAst): DependencyGraph {
     nodes.push({
       id,
       kind: 'copybook',
+      category: 'external',
       label: cb.name,
       sublabel: cb.mechanism === 'COPY' ? 'COPY' : 'EXEC SQL INCLUDE',
       x: COL_EXTERNAL_X,
@@ -119,6 +137,7 @@ export function buildDependencyGraph(ast: ParsedAst): DependencyGraph {
     nodes.push({
       id,
       kind: 'file',
+      category: 'external',
       label: file.cobol_name,
       sublabel: file.assign_to ? `ASSIGN ${file.assign_to}` : undefined,
       x: COL_EXTERNAL_X,
@@ -141,6 +160,7 @@ export function buildDependencyGraph(ast: ParsedAst): DependencyGraph {
         nodes.push({
           id,
           kind: 'table',
+          category: 'external',
           label: table,
           sublabel: 'SQL TABLE',
           x: COL_EXTERNAL_X,
@@ -154,6 +174,12 @@ export function buildDependencyGraph(ast: ParsedAst): DependencyGraph {
       edges.push({ from: fromId ?? programId, to: key, kind: 'sql' })
     }
   }
+
+  // Center the program node vertically against whichever column — paragraphs
+  // or external dependencies — runs taller, so the fan-out reads as a
+  // balanced flowchart root instead of hugging the top edge.
+  const totalRows = Math.max(paragraphs.length, externalRow, 1)
+  programNode.y = 8 + ((totalRows - 1) * ROW_H) / 2
 
   const height =
     Math.max(8 + paragraphs.length * ROW_H, 8 + externalRow * ROW_H, 60) + NODE_H

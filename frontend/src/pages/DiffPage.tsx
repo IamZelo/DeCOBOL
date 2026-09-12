@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getJob } from '../api/client'
-import { DependencyGraphView } from '../components/DependencyGraph'
+import { CATEGORY_STYLE, DependencyGraphView } from '../components/DependencyGraph'
 import { DiffView } from '../components/DiffView'
 import { IconFile, IconGraph, IconSplit, IconStructure } from '../components/icons'
 import { StructureView } from '../components/StructureView'
@@ -64,7 +64,12 @@ export function DiffPage() {
 
   const findings = job?.result?.validation?.findings ?? []
   const ast = job?.result?.parsed_ast
-  const graph = useMemo(() => (ast ? buildDependencyGraph(ast) : null), [ast])
+  const converterResult = job?.agent_results?.find((a) => a.agent === 'converter')
+  const agentRefactored = converterResult ? !converterResult.used_fallback : false
+  const graph = useMemo(
+    () => (ast ? buildDependencyGraph(ast, agentRefactored) : null),
+    [ast, agentRefactored],
+  )
 
   const sourceLines = useMemo(
     () => (job?.raw_cobol ? buildDiffLines(job.raw_cobol, findings, 'cobol') : []),
@@ -81,7 +86,6 @@ export function DiffPage() {
       : 'equivalence not verified'
     : ''
 
-  const converterResult = job?.agent_results?.find((a) => a.agent === 'converter')
   const javaBadge = converterResult?.used_fallback
     ? { label: 'FALLBACK SKELETON', tone: 'warning' as const }
     : converterResult?.confidence != null
@@ -234,6 +238,17 @@ export function DiffPage() {
           {tab === 'graph' ? (
             graph ? (
               <>
+                <div className="depgraph-legend">
+                  {(Object.keys(CATEGORY_STYLE) as (keyof typeof CATEGORY_STYLE)[]).map((key) => (
+                    <span className="depgraph-legend-item" key={key}>
+                      <span
+                        className="depgraph-swatch is-outline"
+                        style={{ borderColor: CATEGORY_STYLE[key].stroke }}
+                      />
+                      {CATEGORY_STYLE[key].label}
+                    </span>
+                  ))}
+                </div>
                 <div className="depgraph-legend">
                   {LEGEND.map((item) => (
                     <span className="depgraph-legend-item" key={item.label}>

@@ -1478,13 +1478,87 @@
   flex: none;
 }
 
-.depgraph-panel {
-  padding: 16px;
-  overflow: auto;
+.depgraph-swatch.is-outline {
+  background: none;
+  border: 1.5px solid;
 }
 
-.depgraph-scroll {
-  overflow: auto;
+.depgraph-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ---------- React Flow dependency graph ---------- */
+
+.depgraph-flow {
+  height: 640px;
+  position: relative;
+}
+
+.depgraph-flow .react-flow {
+  --xy-background-color: var(--bg-raised);
+  --xy-background-pattern-color: var(--line);
+  --xy-controls-button-background-color: var(--bg-control);
+  --xy-controls-button-background-color-hover: var(--bg-control-alt);
+  --xy-controls-button-color: var(--text-dim);
+  --xy-controls-button-color-hover: var(--text);
+  --xy-controls-button-border-color: var(--line);
+  --xy-minimap-background-color: var(--bg-panel);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--bg) 65%, transparent);
+  --xy-edge-stroke-default: var(--dot-idle);
+}
+
+.depgraph-flow .react-flow__attribution {
+  display: none;
+}
+
+.depgraph-flow .react-flow__controls {
+  box-shadow: none;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.depgraph-flow .react-flow__controls-button {
+  border-bottom: 1px solid var(--line);
+}
+
+.depgraph-flow .react-flow__minimap {
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+.depgraph-node {
+  box-sizing: border-box;
+  border-style: solid;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  cursor: pointer;
+  transition: border-width 120ms ease;
+}
+
+.depgraph-node-label {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.depgraph-node-sublabel {
+  margin-top: 2px;
+  font-size: 9px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .depgraph-flow {
+    height: 420px;
+  }
 }
 
 /* ========== Responsive ========== */
@@ -1604,7 +1678,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 64px;
+  /* Matches .nav's padding exactly so the logo doesn't jump when navigating
+     from the landing page into the app shell. */
+  padding: 0 24px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -1675,6 +1751,29 @@
 
 .landing-footnote.is-centered {
   text-align: center;
+}
+
+.landing-input-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-dim);
+}
+
+.landing-input-note.is-centered {
+  text-align: center;
+}
+
+.landing-input-note code {
+  font-family: var(--mono);
+  color: var(--text);
+  background: var(--bg-control);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.landing-input-note.is-warning {
+  color: var(--text-warm);
 }
 
 .hl {
@@ -1778,7 +1877,9 @@
 
 .agent-card-wrap {
   display: flex;
-  align-items: center;
+  /* stretch (not center) so every card fills the row's tallest sibling —
+     otherwise cards with shorter copy end up visibly shorter boxes. */
+  align-items: stretch;
   gap: 4px;
   flex: 1;
   min-width: 160px;
@@ -1818,6 +1919,7 @@
 
 .agent-card-arrow {
   flex: none;
+  align-self: center;
   color: var(--text-dim);
 }
 
@@ -1929,7 +2031,6 @@
 }
 
 @media (max-width: 900px) {
-  .landing-header,
   .landing-hero,
   .landing-section,
   .landing-final,
@@ -1957,7 +2058,10 @@
 }
 
 @media (max-width: 640px) {
-  .landing-header,
+  .landing-header {
+    padding: 0 16px;
+  }
+
   .landing-hero,
   .landing-section,
   .landing-final,

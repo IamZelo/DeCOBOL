@@ -4,13 +4,13 @@
 /* Light is the default theme; [data-theme="dark"] on <html> overrides it. */
 :root,
 [data-theme='light'] {
-  --bg: #ffffff;
-  --bg-panel: #f8f8f9;
-  --bg-inset: #f2f3f4;
-  --bg-raised: #fafafa;
-  --bg-control: #f0f1f2;
-  --bg-control-alt: #ececed;
-  --bg-avatar: #e8e9eb;
+  --bg: #f7f6f3;
+  --bg-panel: #f1f0ed;
+  --bg-inset: #ebeae7;
+  --bg-raised: #f3f2ef;
+  --bg-control: #e9e8e5;
+  --bg-control-alt: #e5e4e0;
+  --bg-avatar: #e1e0dc;
 
   --line: #e2e3e6;
   --line-soft: rgba(30, 32, 38, 0.12);
@@ -190,6 +190,15 @@ a {
 .btn-primary:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Higher specificity than either class alone, so it always wins regardless
+   of source order — .btn-compact alone loses this fight to .btn-primary
+   since screens.css is @imported ahead of these rules. */
+.btn-primary.btn-compact {
+  font-size: 13px;
+  line-height: 20px;
+  padding: 7px 16px;
 }
 
 .theme-toggle {
