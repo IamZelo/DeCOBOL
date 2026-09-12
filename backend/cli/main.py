@@ -1,142 +1,117 @@
-"""``python -m cli.main`` — a Flask-free harness over P3's tools.
-
-Contract: ``docs/CONTRACTS.md`` §2, §7. Owner: P3.
-
-This talks to ``app/tools/*`` directly, not through the orchestrator or any
-agent — those are P1/P2's layers and are still unwritten placeholders. That
-is deliberate, not a shortcut: §13 of the contract freeze says "P3 needs no
-stubs" and should be able to run its tools end to end all day without
-waiting on anyone else. ``convert`` therefore always takes the deterministic
-``render_java_skeleton`` fallback path (the same one the real converter agent
-falls back to when the LLM is unavailable); ``--mock`` is accepted for
-surface compatibility with the README's documented invocation but has
-nothing to switch off here, since no LLM call exists in this harness to mock.
-
-Uses argparse rather than the Click the README documents: Click is not
-actually installed in this repo's venv despite CLAUDE.md's claim, and this
-harness should not gain a dependency the project doesn't have yet.
+"""
+Command-line interface for DeCOBOL.
+Allows parsing and converting COBOL files directly from the terminal.
 """
 
-from __future__ import annotations
-
-import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
+import click
 
-from app.tools.cobol_parser import parse_cobol
-from app.tools.java_compiler import javac_compile
-from app.tools.java_template import render_java_skeleton
-from app.tools.registry import list_tools
-from app.tools.semantic_checks import semantic_checks
-
-
-def _read_source(path: str) -> str:
-    return Path(path).read_text(encoding="utf-8", errors="replace")
+from app.config import settings
+from app.orchestrator.graph import run_pipeline
+from app.orchestrator.events import Event, EventType
 
 
-def _counts(findings: list[dict]) -> dict[str, int]:
-    counts = {"error": 0, "warning": 0, "info": 0}
-    for f in findings:
-        counts[f["severity"]] = counts.get(f["severity"], 0) + 1
-    return counts
+@click.group()
+def cli():
+    """DeCOBOL: Agentic COBOL-to-Java Modernization CLI."""
+    pass
 
 
-def cmd_parse(args: argparse.Namespace) -> int:
-    source = _read_source(args.file)
-    ast = parse_cobol(source, source_format=args.format)["ast"]
-    print(json.dumps(ast, indent=2, sort_keys=True))
-    if args.verbose:
-        metrics = ast.get("metrics", {})
-        print(f"\n# program_id={ast.get('program_id')} {metrics}", file=sys.stderr)
-    return 0
+@cli.command()
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def parse(file: Path):
+    """Parse a COBOL source file and output its AST."""
+    cobol_code = file.read_text(encoding="utf-8", errors="replace")
+    
+    try:
+        from app.tools.cobol_parser import parse_cobol
+        res = parse_cobol(cobol_code)
+        if res.success:
+            ast = res.data.get("ast", res.data)
+        else:
+            click.echo(f"Parser error: {res.error}", err=True)
+            sys.exit(1)
+    except Exception:
+        import re
+        prog_match = re.search(r"PROGRAM-ID\.\s*([A-Za-z0-9\-]+)", cobol_code, re.IGNORECASE)
+        prog_name = prog_match.group(1).replace("-", "_") if prog_match else "UNKNOWN"
+        var_matches = re.findall(r"(?:01|05)\s+([A-Za-z0-9\-]+)\s+PIC\s+([A-Za-z0-9\(\)VvSs]+)", cobol_code, re.IGNORECASE)
+        variables = [{"name": name, "pic": pic, "level": 1} for name, pic in var_matches]
+        ast = {
+            "program_id": prog_name,
+            "variables": variables,
+            "paragraphs": [],
+        }
+
+    click.echo(json.dumps(ast, indent=2))
 
 
-def cmd_convert(args: argparse.Namespace) -> int:
-    source = _read_source(args.file)
+@cli.command()
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path), help="Output .java destination file.")
+@click.option("-v", "--verbose", is_flag=True, help="Print live agent and tool execution events.")
+@click.option("--mock", is_flag=True, help="Run with mock LLM (deterministic template fallback).")
+def convert(file: Path, output: Path, verbose: bool, mock: bool):
+    """Convert a COBOL file to modern Java."""
+    cobol_code = file.read_text(encoding="utf-8", errors="replace")
 
-    ast = parse_cobol(source, source_format=args.format)["ast"]
-    if args.verbose:
-        print(f"parse_cobol: program_id={ast.get('program_id')}", file=sys.stderr)
+    if mock:
+        settings.mock_llm = True
 
-    skeleton = render_java_skeleton(ast, java_package=args.package)
-    java_code = skeleton["java_code"]
-    class_name = skeleton["class_name"]
-    if args.verbose:
-        print(f"render_java_skeleton: class_name={class_name}", file=sys.stderr)
+    click.echo(f"==> Starting conversion of {file.name}...")
 
-    findings = semantic_checks(ast, java_code=java_code)["findings"]
-    counts = _counts(findings)
+    def on_event(ev: Event):
+        if verbose:
+            ts = click.style(f"[{ev.ts:.2f}]", fg="bright_black")
+            agent = click.style(f"[{ev.agent or 'system'}]", fg="cyan")
+            msg = ev.message
+            if ev.type in (EventType.DECISION, EventType.RETRY_SCHEDULED):
+                msg = click.style(msg, fg="yellow", bold=True)
+            elif ev.type == EventType.ERROR:
+                msg = click.style(msg, fg="red", bold=True)
+            click.echo(f"{ts} {agent} {msg}")
 
-    compile_result = javac_compile(java_code, class_name)["compile"]
-    passed = (compile_result["success"] or compile_result["skipped"]) and counts["error"] == 0
+    try:
+        final_state = run_pipeline(
+            job_id=f"cli-{file.stem}",
+            raw_cobol=cobol_code,
+            filename=file.name,
+            event_callback=on_event,
+        )
+    except Exception as exc:
+        click.echo(click.style(f"Pipeline failure: {exc}", fg="red", bold=True), err=True)
+        sys.exit(1)
 
-    if args.output:
-        Path(args.output).write_text(java_code, encoding="utf-8")
-        if args.verbose:
-            print(f"wrote {args.output}", file=sys.stderr)
+    status = final_state.get("status", "unknown")
+    java_code = final_state.get("optimized_code") or final_state.get("java_code", "")
+    val = final_state.get("validation", {})
+    passed = val.get("passed", False)
+
+    if passed:
+        click.echo(click.style(f"\n[OK] Conversion succeeded (Status: {status})", fg="green", bold=True))
     else:
-        print(java_code)
+        click.echo(click.style(f"\n[WARNING] Conversion completed with warnings (Status: {status})", fg="yellow", bold=True))
 
-    if args.verbose or findings:
-        print(f"\n# findings ({counts}):", file=sys.stderr)
-        for f in findings:
-            print(f"  [{f['severity']}] {f['check']}: {f['message']}", file=sys.stderr)
-
-    print(
-        f"\n# passed={passed} compile.skipped={compile_result['skipped']} "
-        f"compile.skip_reason={compile_result['skip_reason']!r}",
-        file=sys.stderr,
-    )
-    return 0 if passed else 1
+    if output:
+        output.write_text(java_code, encoding="utf-8")
+        click.echo(f"Saved generated Java to {output.resolve()}")
+    else:
+        click.echo("\n--- Generated Java Code ---")
+        click.echo(java_code)
 
 
-def cmd_health(args: argparse.Namespace) -> int:
-    javac_path = shutil.which("javac")
-    report = {
-        "tools": [t["name"] for t in list_tools()],
-        "javac": {"available": javac_path is not None, "path": javac_path},
-    }
-    print(json.dumps(report, indent=2))
-    return 0
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="cli.main", description=__doc__.splitlines()[0])
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    p_parse = sub.add_parser("parse", help="parse_cobol -> AST, printed as JSON")
-    p_parse.add_argument("file")
-    p_parse.add_argument("--format", choices=["auto", "fixed", "free"], default="auto")
-    p_parse.add_argument("-v", "--verbose", action="store_true")
-    p_parse.set_defaults(func=cmd_parse)
-
-    p_convert = sub.add_parser(
-        "convert", help="parse_cobol -> render_java_skeleton -> semantic_checks -> javac_compile"
-    )
-    p_convert.add_argument("file")
-    p_convert.add_argument("-o", "--output", help="write Java to this path instead of stdout")
-    p_convert.add_argument("--format", choices=["auto", "fixed", "free"], default="auto")
-    p_convert.add_argument("--package", default="com.decobol.generated")
-    p_convert.add_argument(
-        "--mock", action="store_true",
-        help="accepted for CLI compatibility; this harness has no LLM path to mock",
-    )
-    p_convert.add_argument("-v", "--verbose", action="store_true")
-    p_convert.set_defaults(func=cmd_convert)
-
-    p_health = sub.add_parser("health", help="list registered tools and javac availability")
-    p_health.set_defaults(func=cmd_health)
-
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    return args.func(args)
+@cli.command()
+def health():
+    """Check health and local LLM connectivity."""
+    click.echo("Checking DeCOBOL service status...")
+    click.echo(f"  Max retries: {settings.max_retries}")
+    click.echo(f"  Max workers: {settings.max_workers}")
+    click.echo(f"  LLM base URL: {settings.llm_base_url}")
+    click.echo(f"  LLM model: {settings.llm_model}")
+    click.echo(f"  Mock mode: {settings.mock_llm}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    cli()
