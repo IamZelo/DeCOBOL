@@ -26,8 +26,8 @@ def parse(file: Path):
     cobol_code = file.read_text(encoding="utf-8", errors="replace")
     
     try:
-        from app.tools.cobol_parser import parse_cobol
-        res = parse_cobol(cobol_code)
+        from app.tools.registry import call_tool
+        res = call_tool("parse_cobol", cobol_code=cobol_code)
         if res.success:
             ast = res.data.get("ast", res.data)
         else:

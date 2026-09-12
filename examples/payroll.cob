@@ -1,18 +1,23 @@
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. PAYROLL-CALC.
-       AUTHOR. DECOBOL.
+       PROGRAM-ID. PAYROLL.
 
        DATA DIVISION.
        WORKING-STORAGE SECTION.
-       01 WS-EMP-ID       PIC 9(6).
-       01 WS-EMP-NAME     PIC X(25).
-       01 WS-HOURS        PIC 9(3)V99.
-       01 WS-HOURLY-RATE  PIC 9(3)V99.
-       01 WS-GROSS-PAY    PIC 9(6)V99.
-       01 WS-TAX-RATE     PIC V99 VALUE 0.20.
-       01 WS-NET-PAY      PIC 9(6)V99.
+       01  WS-EMP-NAME             PIC X(20).
+       01  WS-EMP-COUNT            PIC 9(3).
+       01  WS-HOURS-WORKED         PIC 9(3)V9(2).
+       01  WS-HOURLY-RATE          PIC S9(5)V99      COMP-3.
+       01  WS-GROSS-PAY            PIC S9(7)V99      COMP-3.
+       01  WS-TAX-RATE             PIC V999          VALUE 0.200.
+       01  WS-NET-PAY              PIC S9(7)V99      COMP-3.
 
        PROCEDURE DIVISION.
-       CALC-GROSS.
-           DISPLAY 'CALCULATING PAYROLL FOR ' WS-EMP-NAME.
+       MAIN-PARA.
+           MOVE "JANE DOE" TO WS-EMP-NAME.
+           MOVE 40.00 TO WS-HOURS-WORKED.
+           MOVE 25.50 TO WS-HOURLY-RATE.
+           COMPUTE WS-GROSS-PAY ROUNDED = WS-HOURS-WORKED * WS-HOURLY-RATE.
+           COMPUTE WS-NET-PAY ROUNDED = WS-GROSS-PAY * (1 - WS-TAX-RATE).
+           MOVE 12345 TO WS-EMP-COUNT.
+           DISPLAY WS-EMP-NAME.
            STOP RUN.

@@ -33,3 +33,6 @@ out/
 .DS_Store
 
 temp
+CLAUDE.md
+
+graphify-out

@@ -50,11 +50,11 @@ def parser_node(state: ConversionState, config: Optional[RunnableConfig] = None)
     # Try tool or fallback
     ast: Dict[str, Any] = {}
     try:
-        from app.tools.cobol_parser import parse_cobol
+        from app.tools.registry import call_tool
         if cb:
             cb(Event(type=EventType.TOOL_CALLED, agent="parser", message="Calling parse_cobol", data={"tool": "parse_cobol", "args_summary": "source_format=auto"}))
         tools_called.append("parse_cobol")
-        res = parse_cobol(raw_cobol)
+        res = call_tool("parse_cobol", cobol_code=raw_cobol)
         if res.success:
             ast = res.data.get("ast", res.data)
             if cb:
@@ -336,11 +336,11 @@ def validator_node(state: ConversionState, config: Optional[RunnableConfig] = No
 
     # 1. javac tool
     try:
-        from app.tools.java_compiler import compile_java
+        from app.tools.registry import call_tool
         if cb:
             cb(Event(type=EventType.TOOL_CALLED, agent="validator", message="Calling javac_compile", data={"tool": "javac_compile", "args_summary": f"class_name={class_name}"}))
         tools_called.append("javac_compile")
-        c_res = compile_java(code_to_check, class_name=class_name)
+        c_res = call_tool("javac_compile", java_code=code_to_check, class_name=class_name)
         if cb:
             cb(Event(type=EventType.TOOL_RESULT, agent="validator", message="javac_compile completed", data={"tool": "javac_compile", "success": c_res.success, "duration_ms": c_res.duration_ms}))
         compile_result = c_res.data.get("compile", {
@@ -366,11 +366,11 @@ def validator_node(state: ConversionState, config: Optional[RunnableConfig] = No
 
     # 2. semantic checks tool
     try:
-        from app.tools.semantic_checks import run_semantic_checks
+        from app.tools.registry import call_tool
         if cb:
             cb(Event(type=EventType.TOOL_CALLED, agent="validator", message="Calling semantic_checks", data={"tool": "semantic_checks", "args_summary": "ast,java_code"}))
         tools_called.append("semantic_checks")
-        s_res = run_semantic_checks(ast=ast, java_code=code_to_check)
+        s_res = call_tool("semantic_checks", ast=ast, java_code=code_to_check)
         if cb:
             cb(Event(type=EventType.TOOL_RESULT, agent="validator", message="semantic_checks completed", data={"tool": "semantic_checks", "success": s_res.success, "duration_ms": s_res.duration_ms}))
         if s_res.success:

@@ -102,8 +102,8 @@ def parse_endpoint():
         return jsonify({"error": "Missing or empty 'cobol_code' field"}), 400
 
     try:
-        from app.tools.cobol_parser import parse_cobol
-        res = parse_cobol(cobol_code)
+        from app.tools.registry import call_tool
+        res = call_tool("parse_cobol", cobol_code=cobol_code)
         if res.success:
             return jsonify({"success": True, "ast": res.data.get("ast", res.data)})
         else:
