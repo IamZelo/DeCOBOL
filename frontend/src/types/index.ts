@@ -93,6 +93,19 @@ export interface AstParagraph {
   end_line: number
 }
 
+/** CONTRACTS §3.3 — a subset; only the fields the structure view needs. */
+export interface AstVariable {
+  name: string
+  level: number
+  parent: string | null
+  pic: string | null
+  usage: string
+  is_group: boolean
+  java_name: string
+  java_type: string
+  source_line: number
+}
+
 /** CONTRACTS §3.7 */
 export interface AstCopybook {
   name: string
@@ -123,6 +136,7 @@ export interface ParsedAst {
   copybooks: AstCopybook[]
   files: AstFileDescriptor[]
   sql_blocks: AstSqlBlock[]
+  variables?: AstVariable[]
   [key: string]: unknown
 }
 

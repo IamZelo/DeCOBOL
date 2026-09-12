@@ -304,6 +304,12 @@ hf download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF qwen2.5-coder-7b-instruct-q4_k_m
 ```
 Any instruct/coder GGUF around 7B works. Set `LLAMA_MODEL_FILE` in `.env` to its filename.
 
+**Lightweight fallback for early testing.** Pulling a 7B model just to check that the orchestrator, SSE events and UI are wired up is slow. For that, point `llama-server` at a small ~1B instruct GGUF instead:
+```bash
+hf download bartowski/Llama-3.2-1B-Instruct-GGUF Llama-3.2-1B-Instruct-Q4_K_M.gguf --local-dir llm/models
+```
+It runs on CPU in seconds and is enough to exercise the real LLM code path end-to-end, but its COBOL→Java output is unreliable — swap back to the 7B model before judging conversion quality. `MOCK_LLM=true` (see §4/§9) skips the LLM entirely if you don't need a real model call at all.
+
 ### 3. Start the local LLM
 ```bash
 ./llm/start_llama_server.sh

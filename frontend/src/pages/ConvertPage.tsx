@@ -3,16 +3,11 @@ import { TopNav } from '../components/TopNav'
 import { useConversion } from '../hooks/useConversion'
 import { useWorkspace } from '../hooks/useWorkspace'
 import { formatBytes } from '../lib/format'
-import type { PrecisionMode, TargetRuntime } from '../hooks/useConversion'
+import type { PrecisionMode } from '../hooks/useConversion'
 
 function Radio({ on }: { on: boolean }) {
   return <span className={on ? 'radio is-on' : 'radio'} aria-hidden="true" />
 }
-
-const RUNTIMES: { id: TargetRuntime; title: string; note: string }[] = [
-  { id: 'java_21', title: 'Java 21 LTS', note: 'Virtual Threads & Records' },
-  { id: 'java_17', title: 'Java 17 LTS', note: 'Classic POJOs' },
-]
 
 const PRECISIONS: { id: PrecisionMode; title: string; note: string }[] = [
   {
@@ -32,13 +27,11 @@ export function ConvertPage() {
   const { selected, findNode, root } = useWorkspace()
   const {
     javaPackage,
-    runtime,
     precision,
     confirmLocal,
     submitting,
     submitError,
     setJavaPackage,
-    setRuntime,
     setPrecision,
     setConfirmLocal,
     startConversion,
@@ -129,22 +122,12 @@ export function ConvertPage() {
 
               <div className="field">
                 <span className="label">Target runtime</span>
-                <div className="choice-row">
-                  {RUNTIMES.map((opt) => (
-                    <button
-                      key={opt.id}
-                      className={
-                        runtime === opt.id ? 'choice is-selected' : 'choice'
-                      }
-                      onClick={() => setRuntime(opt.id)}
-                    >
-                      <span className="choice-head">
-                        <Radio on={runtime === opt.id} />
-                        <b>{opt.title}</b>
-                      </span>
-                      <span className="meta">{opt.note}</span>
-                    </button>
-                  ))}
+                <div className="field-fact">
+                  <b>Java 21 LTS</b>
+                  <span className="meta">
+                    Virtual Threads &amp; Records — the only runtime this build
+                    verifies against.
+                  </span>
                 </div>
               </div>
 
@@ -182,7 +165,7 @@ export function ConvertPage() {
                         <path
                           d="M2.5 6.2 4.8 8.5 9.5 3.8"
                           fill="none"
-                          stroke="#111318"
+                          stroke="var(--bg)"
                           strokeWidth="1.8"
                           strokeLinecap="square"
                         />
@@ -208,7 +191,6 @@ export function ConvertPage() {
                     {submitting ? 'Starting…' : 'Start Conversion Pipeline'}
                     <span className="btn-key">↵</span>
                   </button>
-                  <button className="btn">Save Config</button>
                 </div>
               </div>
             </section>

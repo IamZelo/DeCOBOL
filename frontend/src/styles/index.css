@@ -1,33 +1,71 @@
 /* Design tokens taken from the DeCOBOL "Simplified" Figma frames. */
 @import './screens.css';
 
-:root {
-  --bg: #111318;
-  --bg-panel: #181a1f;
-  --bg-inset: #0c0e12;
-  --bg-raised: #16181d;
-  --bg-control: #1e2024;
-  --bg-control-alt: #1d2026;
-  --bg-avatar: #22252b;
+/* Light is the default theme; [data-theme="dark"] on <html> overrides it. */
+:root,
+[data-theme='light'] {
+  --bg: #ffffff;
+  --bg-panel: #f8f8f9;
+  --bg-inset: #f2f3f4;
+  --bg-raised: #fafafa;
+  --bg-control: #f0f1f2;
+  --bg-control-alt: #ececed;
+  --bg-avatar: #e8e9eb;
 
-  --line: #33363e;
-  --line-soft: rgba(51, 54, 62, 0.4);
-  --line-faint: rgba(51, 54, 62, 0.2);
-  --line-hair: rgba(51, 54, 62, 0.15);
+  --line: #e2e3e6;
+  --line-soft: rgba(30, 32, 38, 0.12);
+  --line-faint: rgba(30, 32, 38, 0.08);
+  --line-hair: rgba(30, 32, 38, 0.06);
 
-  --text: #e2e2e8;
-  --text-dim: #9296a0;
-  --text-warm: #9c8f7b;
+  --text: #17181c;
+  --text-dim: #6b7078;
+  --text-warm: #a8501e;
 
-  --accent: #d29922;
-  --accent-wash: rgba(210, 153, 34, 0.1);
-  --accent-wash-strong: rgba(210, 153, 34, 0.15);
-  --dot-idle: #858178;
+  --accent: #b1541f;
+  --accent-wash: rgba(177, 84, 31, 0.08);
+  --accent-wash-strong: rgba(177, 84, 31, 0.14);
+  --accent-green: #1f8a57;
+  --accent-yellow: #a8791b;
+  --accent-red: #c53a30;
+  --accent-cyan: #3f6f92;
+  --dot-idle: #b0b4bb;
 
   --mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
 
   --header-h: 56px;
+}
+
+[data-theme='dark'] {
+  /* Neutral slate surface stack — no blue or purple cast. */
+  --bg: #14161c;
+  --bg-panel: #1a1d24;
+  --bg-inset: #0f1116;
+  --bg-raised: #1e222b;
+  --bg-control: #242832;
+  --bg-control-alt: #232732;
+  --bg-avatar: #282c37;
+
+  --line: #2c303c;
+  --line-soft: rgba(44, 48, 60, 0.55);
+  --line-faint: rgba(44, 48, 60, 0.3);
+  --line-hair: rgba(44, 48, 60, 0.18);
+
+  --text: #eef0f4;
+  --text-dim: #838a9c;
+  --text-warm: #d68a4c;
+
+  /* Copper/rust primary — a banking-ledger, not a SaaS-purple, association —
+     plus a muted semantic set used with intent: copper = primary action /
+     active state, green = pass, gold = pending, brick = error, steel = info. */
+  --accent: #cc6b32;
+  --accent-wash: rgba(204, 107, 50, 0.1);
+  --accent-wash-strong: rgba(204, 107, 50, 0.16);
+  --accent-green: #5fae82;
+  --accent-yellow: #d3a94b;
+  --accent-red: #cc5b52;
+  --accent-cyan: #5f93ad;
+  --dot-idle: #565c6b;
 }
 
 *,
@@ -81,7 +119,7 @@ a {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2b2e36;
+  background: var(--line);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -154,6 +192,19 @@ a {
   cursor: not-allowed;
 }
 
+.theme-toggle {
+  border: 1px solid var(--line);
+  padding: 5px 10px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
 /* ---------- top navigation ---------- */
 
 .nav {
@@ -185,15 +236,6 @@ a {
   font-size: 16px;
   line-height: 24px;
   letter-spacing: -0.4px;
-}
-
-.nav-badge {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 3px 7px;
-  font-size: 11px;
-  line-height: 16.5px;
-  color: var(--text-dim);
 }
 
 .nav-links {
@@ -277,4 +319,49 @@ a {
   font-size: 12px;
   line-height: 18px;
   color: var(--text-dim);
+}
+
+/* ---------- responsive: nav + page shell ---------- */
+
+@media (max-width: 860px) {
+  .page {
+    padding: 0 24px;
+  }
+
+  .page-inner {
+    padding: 28px 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .nav {
+    padding: 0 16px;
+    gap: 12px;
+  }
+
+  .nav-left {
+    min-width: 0;
+    gap: 16px;
+  }
+
+  .nav-links {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav-links::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-link {
+    white-space: nowrap;
+  }
+
+  .nav-right {
+    display: none;
+  }
+
+  .page {
+    padding: 0 16px;
+  }
 }

@@ -15,24 +15,26 @@ export function ExecutionLog({
   wrap: boolean
   autoscroll: boolean
 }) {
-  const endRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (autoscroll) endRef.current?.scrollIntoView({ block: 'end' })
+    const el = scrollRef.current
+    if (autoscroll && el) el.scrollTop = el.scrollHeight
   }, [lines, autoscroll])
 
   return (
-    <div className={wrap ? 'log is-wrapped' : 'log'}>
-      {lines.map((line, i) => (
-        <div className="log-line" key={i}>
-          <span className="log-ts">{line.ts}</span>
-          <span className={`log-text is-${line.tone}`}>
-            {line.text}
-            {i === lines.length - 1 ? <span className="caret" /> : null}
-          </span>
-        </div>
-      ))}
-      <div ref={endRef} />
+    <div className="log-scroll" ref={scrollRef}>
+      <div className={wrap ? 'log is-wrapped' : 'log'}>
+        {lines.map((line, i) => (
+          <div className="log-line" key={i}>
+            <span className="log-ts">{line.ts}</span>
+            <span className={`log-text is-${line.tone}`}>
+              {line.text}
+              {i === lines.length - 1 ? <span className="caret" /> : null}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

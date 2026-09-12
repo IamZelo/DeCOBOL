@@ -1,10 +1,17 @@
 import type { DiffLine } from '../lib/diff'
+import { IconFile } from './icons'
+
+interface Badge {
+  label: string
+  tone: 'neutral' | 'success' | 'warning'
+}
 
 interface Side {
   name: string
   meta: string
   lines: number
   rows: DiffLine[]
+  badge?: Badge
 }
 
 function Column({ rows }: { rows: DiffLine[] }) {
@@ -16,6 +23,22 @@ function Column({ rows }: { rows: DiffLine[] }) {
           <span className="diff-code">{row.text}</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+function HeadCell({ side }: { side: Side }) {
+  return (
+    <div className="diff-head-cell">
+      <div className="diff-head-id">
+        <IconFile />
+        <b>{side.name}</b>
+        <span className="meta">{side.meta}</span>
+      </div>
+      <div className="diff-head-right">
+        <span className="meta">{side.lines} lines</span>
+        {side.badge ? <span className={`badge is-${side.badge.tone}`}>{side.badge.label}</span> : null}
+      </div>
     </div>
   )
 }
@@ -32,20 +55,8 @@ export function DiffView({
   return (
     <div className="diff">
       <div className="diff-head">
-        <div className="diff-head-cell">
-          <div className="diff-head-id">
-            <b>{source.name}</b>
-            <span className="meta">{source.meta}</span>
-          </div>
-          <span className="meta">{source.lines} lines</span>
-        </div>
-        <div className="diff-head-cell">
-          <div className="diff-head-id">
-            <b>{target.name}</b>
-            <span className="meta">{target.meta}</span>
-          </div>
-          <span className="meta">{target.lines} lines</span>
-        </div>
+        <HeadCell side={source} />
+        <HeadCell side={target} />
       </div>
 
       {mode === 'split' ? (

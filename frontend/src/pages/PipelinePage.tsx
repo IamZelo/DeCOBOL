@@ -118,7 +118,6 @@ export function PipelinePage() {
               <span>{PIPELINE_BATCH.batch}</span>
               <span>JVM 21 TARGET</span>
               <span>DAEMON :8080</span>
-              <button className="bracket">[PAUSE]</button>
             </>
           )
         }

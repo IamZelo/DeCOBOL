@@ -1,6 +1,7 @@
 import { PIPELINE_STEPS } from '../data/fixtures'
 
 export type StepState = 'done' | 'active' | 'pending'
+export type WorkflowStep = { index: string; agent: string; tool: string; detail: string }
 
 function Check() {
   return (
@@ -18,12 +19,14 @@ function Check() {
 /** The five-agent horizontal step strip. */
 export function WorkflowGraph({
   states,
+  steps = PIPELINE_STEPS,
 }: {
   states: Record<string, StepState>
+  steps?: WorkflowStep[]
 }) {
   return (
     <div className="steps">
-      {PIPELINE_STEPS.map((step) => {
+      {steps.map((step) => {
         const state = states[step.agent] ?? 'pending'
         return (
           <div className={`step is-${state}`} key={step.index}>

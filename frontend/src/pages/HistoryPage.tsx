@@ -154,44 +154,46 @@ export function HistoryPage() {
           {error ? <p className="meta is-error">{error}</p> : null}
 
           {!loading && !error ? (
-            <table className="audit">
-              <thead>
-                <tr>
-                  <th>Job</th>
-                  <th>Timestamp</th>
-                  <th>Source</th>
-                  <th>LOC</th>
-                  <th className="is-right">Duration</th>
-                  <th>Status</th>
-                  <th className="is-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((row) => (
-                  <tr key={row.job_id}>
-                    <td className="audit-batch">#{row.job_id.slice(0, 8)}</td>
-                    <td className="meta">{formatTimestamp(row.created_ts)}</td>
-                    <td className="meta">{row.source_path ?? row.filename ?? '(inline)'}</td>
-                    <td>{row.loc ?? '—'}</td>
-                    <td className="meta is-right">{formatSeconds(row.duration_ms)}</td>
-                    <td>
-                      {row.status.replace(/_/g, ' ')}
-                      {row.retry_count > 0 ? (
-                        <span className="meta audit-retry">
-                          {row.retry_count} {row.retry_count === 1 ? 'retry' : 'retries'}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="is-right">
-                      <div className="audit-actions">
-                        <button onClick={() => navigate('/diff')}>Diff</button>
-                        <button onClick={() => navigate('/pipeline')}>Log</button>
-                      </div>
-                    </td>
+            <div className="table-scroll">
+              <table className="audit">
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Timestamp</th>
+                    <th>Source</th>
+                    <th>LOC</th>
+                    <th className="is-right">Duration</th>
+                    <th>Status</th>
+                    <th className="is-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filtered.map((row) => (
+                    <tr key={row.job_id}>
+                      <td className="audit-batch">#{row.job_id.slice(0, 8)}</td>
+                      <td className="meta">{formatTimestamp(row.created_ts)}</td>
+                      <td className="meta">{row.source_path ?? row.filename ?? '(inline)'}</td>
+                      <td>{row.loc ?? '—'}</td>
+                      <td className="meta is-right">{formatSeconds(row.duration_ms)}</td>
+                      <td>
+                        {row.status.replace(/_/g, ' ')}
+                        {row.retry_count > 0 ? (
+                          <span className="meta audit-retry">
+                            {row.retry_count} {row.retry_count === 1 ? 'retry' : 'retries'}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="is-right">
+                        <div className="audit-actions">
+                          <button onClick={() => navigate('/diff')}>Diff</button>
+                          <button onClick={() => navigate('/pipeline')}>Log</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : null}
 
           {!loading && !error && filtered.length === 0 ? (

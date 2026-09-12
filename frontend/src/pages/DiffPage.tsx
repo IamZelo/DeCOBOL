@@ -1,17 +1,38 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getJob } from '../api/client'
+import { DependencyGraphView } from '../components/DependencyGraph'
 import { DiffView } from '../components/DiffView'
+import { IconFile, IconGraph, IconSplit, IconStructure } from '../components/icons'
+import { StructureView } from '../components/StructureView'
 import { TopNav } from '../components/TopNav'
 import { ValidationReport } from '../components/ValidationReport'
 import { useConversion } from '../hooks/useConversion'
+import { buildDependencyGraph } from '../lib/dependencyGraph'
 import { buildDiffLines } from '../lib/diff'
+import { formatTimestamp } from '../lib/format'
 import type { Job } from '../types'
 
 const TERMINAL = new Set(['completed', 'completed_with_warnings', 'failed'])
 
+const LEGEND: { swatch: string; label: string }[] = [
+  { swatch: 'var(--accent)', label: 'PERFORM (call graph)' },
+  { swatch: 'var(--accent-yellow)', label: 'COPY / EXEC SQL INCLUDE' },
+  { swatch: 'var(--accent-cyan)', label: 'File I/O' },
+  { swatch: 'var(--accent-green)', label: 'SQL table' },
+]
+
+type Tab = 'structure' | 'code' | 'graph'
+
+const TABS: { id: Tab; label: string; icon: () => JSX.Element }[] = [
+  { id: 'structure', label: 'Structure', icon: IconStructure },
+  { id: 'code', label: 'Code Split View', icon: IconSplit },
+  { id: 'graph', label: 'Dependency Graph', icon: IconGraph },
+]
+
 export function DiffPage() {
   const { jobId } = useConversion()
+  const [tab, setTab] = useState<Tab>('structure')
   const [mode, setMode] = useState<'split' | 'unified'>('split')
   const [job, setJob] = useState<Job | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -42,6 +63,8 @@ export function DiffPage() {
   }, [jobId])
 
   const findings = job?.result?.validation?.findings ?? []
+  const ast = job?.result?.parsed_ast
+  const graph = useMemo(() => (ast ? buildDependencyGraph(ast) : null), [ast])
 
   const sourceLines = useMemo(
     () => (job?.raw_cobol ? buildDiffLines(job.raw_cobol, findings, 'cobol') : []),
@@ -57,6 +80,13 @@ export function DiffPage() {
       ? '100% equivalence'
       : 'equivalence not verified'
     : ''
+
+  const converterResult = job?.agent_results?.find((a) => a.agent === 'converter')
+  const javaBadge = converterResult?.used_fallback
+    ? { label: 'FALLBACK SKELETON', tone: 'warning' as const }
+    : converterResult?.confidence != null
+      ? { label: `Confidence: ${Math.round(converterResult.confidence * 100)}%`, tone: 'success' as const }
+      : undefined
 
   if (!jobId) {
     return (
@@ -109,53 +139,125 @@ export function DiffPage() {
     )
   }
 
+  const className = job.result?.class_name ?? 'Program'
+
   return (
     <div className="app">
-      <TopNav
-        right={
-          <>
-            <span>Output:</span>
-            <span className="path-accent">{job.output_path ?? '(preview only)'}</span>
-          </>
-        }
-      />
+      <TopNav />
+
+      <div className="analysis-topbar">
+        <div className="analysis-breadcrumb">
+          <IconFile />
+          <Link to="/workspace" className="meta">
+            {job.source_path ? job.source_path.split('/').slice(0, -1).join('/') || 'src' : 'src'}
+          </Link>
+          <span className="meta">/</span>
+          <b>{job.filename ?? 'source.cbl'}</b>
+        </div>
+        <div className="analysis-status">
+          <span className={job.result?.validation?.passed === false ? 'dot' : 'dot is-live'} />
+          <span className="meta">
+            {job.status === 'completed_with_warnings' ? 'Completed with warnings' : job.status.replace(/_/g, ' ')}
+          </span>
+          <Link to="/convert" className="btn-primary btn-compact">
+            Run Conversion
+          </Link>
+        </div>
+      </div>
 
       <div className="page is-wide">
         <div className="page-inner is-wide">
-          <div className="diff-toolbar">
-            <div className="segmented">
-              <button
-                className={mode === 'split' ? 'is-on' : ''}
-                onClick={() => setMode('split')}
-              >
-                SPLIT
-              </button>
-              <button
-                className={mode === 'unified' ? 'is-on' : ''}
-                onClick={() => setMode('unified')}
-              >
-                UNIFIED
-              </button>
-            </div>
+          <div className="page-lead">
+            <h1 className="h1">{job.filename ?? 'Program'} Analysis</h1>
+            <p>
+              Multi-agent conversion pipeline overview for {job.result?.parsed_ast?.program_id ?? className}.
+              Review the field/method structure, the raw code side by side, and its call graph below.
+            </p>
           </div>
 
-          <DiffView
-            mode={mode}
-            source={{
-              name: job.filename ?? 'source.cbl',
-              meta: job.result?.parsed_ast?.program_id ?? '',
-              lines: sourceLines.length,
-              rows: sourceLines,
-            }}
-            target={{
-              name: `${job.result?.class_name ?? 'Program'}.java`,
-              meta: 'Java',
-              lines: targetLines.length,
-              rows: targetLines,
-            }}
-          />
+          <div className="analysis-tabs">
+            {TABS.map((t) => {
+              const Icon = t.icon
+              return (
+                <button
+                  key={t.id}
+                  className={tab === t.id ? 'analysis-tab is-on' : 'analysis-tab'}
+                  onClick={() => setTab(t.id)}
+                >
+                  <Icon />
+                  {t.label}
+                </button>
+              )
+            })}
+          </div>
 
-          <ValidationReport findings={findings} equivalence={equivalence} />
+          {tab === 'structure' ? <StructureView job={job} findings={findings} /> : null}
+
+          {tab === 'code' ? (
+            <>
+              <div className="diff-toolbar">
+                <div className="segmented">
+                  <button
+                    className={mode === 'split' ? 'is-on' : ''}
+                    onClick={() => setMode('split')}
+                  >
+                    SPLIT
+                  </button>
+                  <button
+                    className={mode === 'unified' ? 'is-on' : ''}
+                    onClick={() => setMode('unified')}
+                  >
+                    UNIFIED
+                  </button>
+                </div>
+              </div>
+              <DiffView
+                mode={mode}
+                source={{
+                  name: 'Original COBOL',
+                  meta: job.filename ?? 'source.cbl',
+                  lines: sourceLines.length,
+                  rows: sourceLines,
+                  badge: { label: 'Read-only', tone: 'neutral' },
+                }}
+                target={{
+                  name: 'Converted Java',
+                  meta: `${className}.java`,
+                  lines: targetLines.length,
+                  rows: targetLines,
+                  badge: javaBadge,
+                }}
+              />
+            </>
+          ) : null}
+
+          {tab === 'graph' ? (
+            graph ? (
+              <>
+                <div className="depgraph-legend">
+                  {LEGEND.map((item) => (
+                    <span className="depgraph-legend-item" key={item.label}>
+                      <span className="depgraph-swatch" style={{ background: item.swatch }} />
+                      {item.label}
+                    </span>
+                  ))}
+                </div>
+                <div className="panel depgraph-panel">
+                  <DependencyGraphView graph={graph} />
+                </div>
+                <div className="depgraph-footer">
+                  <span className="meta">
+                    Last synced: {job.finished_ts ? formatTimestamp(job.finished_ts) : '—'}
+                  </span>
+                  <span className="meta">Workspace: {job.source_path ?? '(inline)'}</span>
+                </div>
+              </>
+            ) : (
+              <p className="meta">No AST available for this job.</p>
+            )
+          ) : null}
+
+          {tab !== 'graph' ? <ValidationReport findings={findings} equivalence={equivalence} /> : null}
         </div>
       </div>
     </div>

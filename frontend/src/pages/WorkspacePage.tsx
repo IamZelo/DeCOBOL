@@ -64,7 +64,6 @@ export function WorkspacePage() {
           {selectedBytes ? ` (${formatBytes(selectedBytes)})` : ''}
         </span>
         <div className="workspace-actions-buttons">
-          <button className="btn btn-round">Dry run AST</button>
           <button
             className="btn-primary btn-compact"
             disabled={selected.length === 0}

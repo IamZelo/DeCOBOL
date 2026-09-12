@@ -1,27 +1,20 @@
+import { useMemo, useState } from 'react'
 import type { DependencyGraph, GraphNode } from '../lib/dependencyGraph'
 
 const EDGE_COLOR: Record<string, string> = {
-  contains: '#4f535d',
-  performs: '#d29922',
-  copy: '#9c8f7b',
-  file: '#9296a0',
-  sql: '#6d8fb0',
-}
-
-const NODE_FILL: Record<GraphNode['kind'], string> = {
-  program: '#181a1f',
-  paragraph: '#16181d',
-  copybook: '#111318',
-  file: '#111318',
-  table: '#111318',
+  contains: 'var(--dot-idle)',
+  performs: 'var(--accent)',
+  copy: 'var(--accent-yellow)',
+  file: 'var(--accent-cyan)',
+  sql: 'var(--accent-green)',
 }
 
 const NODE_STROKE: Record<GraphNode['kind'], string> = {
-  program: '#d29922',
-  paragraph: '#34373d',
-  copybook: '#4f535d',
-  file: '#34373d',
-  table: '#6d8fb0',
+  program: 'var(--accent)',
+  paragraph: 'var(--dot-idle)',
+  copybook: 'var(--accent-yellow)',
+  file: 'var(--accent-cyan)',
+  table: 'var(--accent-green)',
 }
 
 function edgePath(from: GraphNode, to: GraphNode): string {
@@ -43,7 +36,22 @@ function performPath(from: GraphNode, to: GraphNode): string {
 }
 
 export function DependencyGraphView({ graph }: { graph: DependencyGraph }) {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]))
+  const [hovered, setHovered] = useState<string | null>(null)
+  const byId = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph])
+
+  const connected = useMemo(() => {
+    if (!hovered) return null
+    const ids = new Set<string>([hovered])
+    const edgeIdx = new Set<number>()
+    graph.edges.forEach((edge, i) => {
+      if (edge.from === hovered || edge.to === hovered) {
+        edgeIdx.add(i)
+        ids.add(edge.from)
+        ids.add(edge.to)
+      }
+    })
+    return { nodes: ids, edges: edgeIdx }
+  }, [hovered, graph.edges])
 
   return (
     <div className="depgraph-scroll">
@@ -52,13 +60,14 @@ export function DependencyGraphView({ graph }: { graph: DependencyGraph }) {
         height={graph.height}
         viewBox={`0 0 ${graph.width} ${graph.height}`}
         role="img"
-        aria-label="COBOL program dependency graph"
+        aria-label="COBOL program dependency graph — hover a node to trace its connections"
       >
         {graph.edges.map((edge, i) => {
           const from = byId.get(edge.from)
           const to = byId.get(edge.to)
           if (!from || !to) return null
           const d = edge.kind === 'performs' ? performPath(from, to) : edgePath(from, to)
+          const active = !connected || connected.edges.has(i)
           return (
             <path
               key={i}
@@ -67,45 +76,57 @@ export function DependencyGraphView({ graph }: { graph: DependencyGraph }) {
               stroke={EDGE_COLOR[edge.kind]}
               strokeWidth={edge.kind === 'performs' ? 1.25 : 1}
               strokeDasharray={edge.kind === 'sql' || edge.kind === 'copy' ? '3 2' : undefined}
-              opacity={0.85}
+              opacity={active ? 0.9 : 0.12}
+              style={{ transition: 'opacity 120ms ease' }}
             />
           )
         })}
 
-        {graph.nodes.map((node) => (
-          <g key={node.id}>
-            <rect
-              x={node.x}
-              y={node.y}
-              width={node.w}
-              height={node.h}
-              rx={2}
-              fill={NODE_FILL[node.kind]}
-              stroke={NODE_STROKE[node.kind]}
-              strokeWidth={node.kind === 'program' ? 1.5 : 1}
-            />
-            <text
-              x={node.x + 8}
-              y={node.y + node.h / 2 + (node.sublabel ? -3 : 4)}
-              fontFamily="'Space Mono', monospace"
-              fontSize={11}
-              fill="#e2e2e8"
+        {graph.nodes.map((node) => {
+          const active = !connected || connected.nodes.has(node.id)
+          const isHovered = node.id === hovered
+          return (
+            <g
+              key={node.id}
+              onMouseEnter={() => setHovered(node.id)}
+              onMouseLeave={() => setHovered(null)}
+              style={{ cursor: 'pointer' }}
+              opacity={active ? 1 : 0.3}
             >
-              {node.label.length > 34 ? `${node.label.slice(0, 33)}…` : node.label}
-            </text>
-            {node.sublabel ? (
+              <rect
+                x={node.x}
+                y={node.y}
+                width={node.w}
+                height={node.h}
+                rx={6}
+                fill={isHovered ? 'var(--bg-control)' : 'var(--bg-raised)'}
+                stroke={NODE_STROKE[node.kind]}
+                strokeWidth={isHovered ? 2 : node.kind === 'program' ? 1.5 : 1}
+                style={{ transition: 'fill 120ms ease, stroke-width 120ms ease' }}
+              />
               <text
                 x={node.x + 8}
-                y={node.y + node.h / 2 + 10}
+                y={node.y + node.h / 2 + (node.sublabel ? -3 : 4)}
                 fontFamily="'Space Mono', monospace"
-                fontSize={9}
-                fill="#9296a0"
+                fontSize={11}
+                fill="var(--text)"
               >
-                {node.sublabel}
+                {node.label.length > 34 ? `${node.label.slice(0, 33)}…` : node.label}
               </text>
-            ) : null}
-          </g>
-        ))}
+              {node.sublabel ? (
+                <text
+                  x={node.x + 8}
+                  y={node.y + node.h / 2 + 10}
+                  fontFamily="'Space Mono', monospace"
+                  fontSize={9}
+                  fill="var(--text-dim)"
+                >
+                  {node.sublabel}
+                </text>
+              ) : null}
+            </g>
+          )
+        })}
       </svg>
     </div>
   )

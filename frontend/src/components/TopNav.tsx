@@ -1,12 +1,12 @@
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { ThemeToggle } from './ThemeToggle'
 
 const LINKS = [
   { to: '/workspace', label: 'Workspace' },
   { to: '/convert', label: 'Convert' },
   { to: '/pipeline', label: 'Pipeline' },
-  { to: '/diff', label: 'Diff & Delivery' },
-  { to: '/graph', label: 'Structure' },
+  { to: '/diff', label: 'Analysis' },
   { to: '/history', label: 'Job History' },
 ]
 
@@ -14,10 +14,9 @@ export function TopNav({ right }: { right?: ReactNode }) {
   return (
     <header className="nav">
       <div className="nav-left">
-        <div className="nav-brand">
+        <Link to="/" className="nav-brand">
           <span className="nav-word">DeCOBOL</span>
-          <span className="nav-badge">EBCDIC &rarr; JVM 21</span>
-        </div>
+        </Link>
         <nav className="nav-links">
           {LINKS.map((link) => (
             <NavLink
@@ -32,7 +31,10 @@ export function TopNav({ right }: { right?: ReactNode }) {
           ))}
         </nav>
       </div>
-      <div className="nav-right">{right}</div>
+      <div className="nav-right">
+        {right}
+        <ThemeToggle />
+      </div>
     </header>
   )
 }

@@ -10,7 +10,7 @@ function Checkbox({ checked }: { checked: boolean }) {
           <path
             d="M2.5 6.2 4.8 8.5 9.5 3.8"
             fill="none"
-            stroke="#111318"
+            stroke="var(--bg)"
             strokeWidth="1.8"
             strokeLinecap="square"
           />
