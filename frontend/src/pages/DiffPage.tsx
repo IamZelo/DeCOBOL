@@ -54,7 +54,9 @@ export function DiffPage() {
   const knownFilename = knownSelectedJob?.filename
 
   const trackedJobs = useMemo(() => {
-    if (batchJobs.length) return batchJobs
+    if (batchJobs.length && batchJobs.some((j) => j.job_id === jobId)) {
+      return batchJobs
+    }
     if (!jobId) return []
     return [
       {
