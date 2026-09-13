@@ -7,6 +7,7 @@ const LINKS = [
   { to: '/convert', label: 'Convert' },
   { to: '/pipeline', label: 'Pipeline' },
   { to: '/diff', label: 'Analysis' },
+  { to: '/docs', label: 'Documentation' },
   { to: '/history', label: 'Job History' },
 ]
 

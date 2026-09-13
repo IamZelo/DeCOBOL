@@ -77,11 +77,27 @@ export interface VariableMapping {
   note?: string | null
 }
 
+/** One generated Java method traced to its COBOL paragraph (additive, §10). */
+export interface MethodDoc {
+  java_name: string
+  signature: string
+  purpose: string
+  cobol_paragraph: string | null
+  java_line: number | null
+}
+
+export interface UnsupportedFeature {
+  feature: string
+  count: number
+  detail: string
+}
+
 export interface Documentation {
   class_javadoc: string
   variable_map: VariableMapping[]
   migration_notes: string[]
-  unsupported: { feature: string; count: number; detail: string }[]
+  unsupported: UnsupportedFeature[]
+  methods?: MethodDoc[]
 }
 
 /** CONTRACTS §3.5 — a subset; only the fields the dependency graph needs. */
@@ -271,4 +287,34 @@ export interface RepoGraphPayload {
   edges: RepoGraphEdge[]
   file_count: number
   parse_errors: { path: string; error: string }[]
+}
+
+/** `GET /api/docs/workspace` — one documented program (the README's per-program section). */
+export interface DocumentedProgram {
+  job_id: string
+  filename: string | null
+  source_path: string | null
+  output_path: string | null
+  status: JobStatus
+  finished_ts: number | null
+  program_id: string | null
+  class_name: string | null
+  class_javadoc: string | null
+  methods: MethodDoc[]
+  variable_map: VariableMapping[]
+  migration_notes: string[]
+  unsupported: UnsupportedFeature[]
+  finding_counts: { error?: number; warning?: number; info?: number }
+  used_fallback: boolean
+}
+
+/** `GET /api/docs/workspace` response — the workspace conversion README. */
+export interface WorkspaceDocs {
+  markdown: string
+  generated_ts: number
+  program_count: number
+  method_count: number
+  field_count: number
+  programs: DocumentedProgram[]
+  dependencies: { nodes: RepoGraphNode[]; edges: RepoGraphEdge[] } | null
 }

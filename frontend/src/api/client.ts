@@ -6,6 +6,7 @@ import type {
   Job,
   JobSummary,
   RepoGraphPayload,
+  WorkspaceDocs,
 } from '../types'
 
 async function get<T>(path: string): Promise<T> {
@@ -49,6 +50,17 @@ export function getFsFile(path: string, root: 'input' | 'output' = 'input') {
 export function getFsGraph(path = '', root: 'input' | 'output' = 'input', recursive = true) {
   const qs = new URLSearchParams({ path, root, recursive: String(recursive) })
   return get<RepoGraphPayload>(`/api/fs/graph?${qs}`)
+}
+
+/**
+ * `GET /api/docs/workspace` — the conversion README assembled from every
+ * completed job's documenter report. `jobIds` scopes it to one batch.
+ */
+export function getWorkspaceDocs(jobIds?: string[]) {
+  const qs = new URLSearchParams()
+  if (jobIds?.length) qs.set('job_ids', jobIds.join(','))
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return get<WorkspaceDocs>(`/api/docs/workspace${suffix}`)
 }
 
 type ConvertRequest =

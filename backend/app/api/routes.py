@@ -317,6 +317,98 @@ def submit_conversion_batch():
     return jsonify({"jobs": submitted}), 202
 
 
+# ---------------------------------------------------------------------------
+# Workspace documentation (docs/LOCAL_DEPLOYMENT_WORKFLOW.md — additive)
+# ---------------------------------------------------------------------------
+
+def _documented_programs(job_ids: list[str] | None) -> list[dict]:
+    """Per-program documentation for every converted job, newest run per file.
+
+    The documenter writes one report per job (CONTRACTS §10). A file converted
+    twice would otherwise appear twice in the README, so the newest job for a
+    given source path wins — the retry history belongs on the Analysis page,
+    not in a maintainer's README.
+    """
+    wanted = set(job_ids) if job_ids else None
+    latest: dict[str, dict] = {}
+
+    for summary in job_store.list_jobs():
+        job_id = summary["job_id"]
+        if wanted is not None and job_id not in wanted:
+            continue
+        job = job_store.get_job(job_id)
+        if job is None or job.status not in ("completed", "completed_with_warnings"):
+            continue
+        detail = job.to_detail()
+        result = detail.get("result") or {}
+        doc = result.get("documentation") or {}
+        validation = result.get("validation") or {}
+        converter = next(
+            (a for a in detail.get("agent_results", []) if a.get("agent") == "converter"),
+            {},
+        )
+
+        key = detail.get("source_path") or detail.get("filename") or job_id
+        entry = {
+            "job_id": job_id,
+            "filename": detail.get("filename"),
+            "source_path": detail.get("source_path"),
+            "output_path": detail.get("output_path"),
+            "status": detail.get("status"),
+            "finished_ts": detail.get("finished_ts"),
+            "program_id": result.get("program_id"),
+            "class_name": result.get("class_name"),
+            "class_javadoc": doc.get("class_javadoc"),
+            "methods": doc.get("methods") or [],
+            "variable_map": doc.get("variable_map") or [],
+            "migration_notes": doc.get("migration_notes") or [],
+            "unsupported": doc.get("unsupported") or [],
+            "finding_counts": validation.get("counts") or {},
+            "used_fallback": bool(converter.get("used_fallback")),
+        }
+        previous = latest.get(key)
+        if previous is None or (entry["finished_ts"] or 0) >= (previous["finished_ts"] or 0):
+            latest[key] = entry
+
+    return sorted(latest.values(), key=lambda e: (e.get("program_id") or e.get("filename") or ""))
+
+
+@api_bp.route("/docs/workspace", methods=["GET"])
+def workspace_documentation():
+    """The conversion README for the whole workspace.
+
+    Assembled from the documenter's per-job reports plus the cross-file scan, so
+    it covers every program converted in this session rather than one job. Pass
+    `job_ids=a,b` to scope it to one batch; omit it for everything converted so
+    far. `include_dependencies=false` skips the workspace scan.
+    """
+    raw_ids = request.args.get("job_ids", "").strip()
+    job_ids = [j for j in raw_ids.split(",") if j] or None
+    programs = _documented_programs(job_ids)
+
+    from app.tools.registry import call_tool
+
+    dependencies = None
+    if request.args.get("include_dependencies", "true").lower() != "false":
+        scan = call_tool("scan_workspace_graph", path="", root="input", recursive=True)
+        if scan.success:
+            dependencies = {"nodes": scan.data["nodes"], "edges": scan.data["edges"]}
+
+    rendered = call_tool(
+        "render_conversion_readme",
+        programs=programs,
+        dependencies=dependencies,
+    )
+    if not rendered.success:
+        return jsonify({"error": rendered.error}), 500
+
+    return jsonify({
+        **rendered.data,
+        "programs": programs,
+        "dependencies": dependencies,
+    })
+
+
 @api_bp.route("/jobs", methods=["GET"])
 def list_all_jobs():
     """Lists recent conversion jobs matching docs/CONTRACTS.md §11."""

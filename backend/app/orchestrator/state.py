@@ -48,12 +48,27 @@ class ValidationReport(TypedDict, total=False):
     attempt: int
 
 
+class MethodDoc(TypedDict, total=False):
+    """One generated Java method, traced back to its COBOL paragraph.
+
+    Additive per CONTRACTS.md §0 (new optional field on §10); consumers that
+    predate it ignore it, and it is absent, never null, when the generated code
+    has no methods to describe.
+    """
+    java_name: str
+    signature: str
+    purpose: str
+    cobol_paragraph: Optional[str]
+    java_line: Optional[int]
+
+
 class DocumentationReport(TypedDict, total=False):
     """Documentation report conforming to CONTRACTS.md §10."""
     class_javadoc: Optional[str]
     variable_map: List[Dict[str, Any]]
     migration_notes: List[str]
     unsupported: List[Dict[str, Any]]
+    methods: List[MethodDoc]
 
 
 class ConversionState(TypedDict, total=False):
