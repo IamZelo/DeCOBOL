@@ -198,6 +198,16 @@ export interface ConvertOptions {
   [key: string]: unknown
 }
 
+export interface SourceFile {
+  path: string
+  name: string
+  dir: string
+  size_bytes: number
+  lines: number
+  linkage: string
+  cobol_code: string
+}
+
 /** `GET /api/fs/tree` entry (docs/LOCAL_DEPLOYMENT_WORKFLOW.md, additive). */
 export interface FsEntry {
   name: string

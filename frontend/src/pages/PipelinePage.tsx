@@ -19,40 +19,108 @@ const SEED_STATES: Record<string, StepState> = {
 
 const TERMINAL = new Set(['completed', 'completed_with_warnings', 'failed'])
 
+function statusLabel(status: string | undefined) {
+  return (status ?? 'queued').toUpperCase().replace(/_/g, ' ')
+}
+
+function statusTone(status: string | undefined) {
+  if (status === 'completed') return 'is-ok'
+  if (status === 'completed_with_warnings') return 'is-warn'
+  if (status === 'failed') return 'is-error'
+  if (status === 'running') return 'is-live'
+  return ''
+}
+
 export function PipelinePage() {
-  const { jobId } = useConversion()
-  const { events } = useJobEvents(jobId)
+  const { jobId, batchJobs, setActiveJobId } = useConversion()
+  const selectedJobId = jobId
+  const { events } = useJobEvents(selectedJobId)
   const [wrap, setWrap] = useState(false)
   const [autoscroll, setAutoscroll] = useState(true)
-  const [job, setJob] = useState<Job | null>(null)
+  const [jobsById, setJobsById] = useState<Record<string, Job>>({})
 
-  const live = events.length > 0
+  const knownSelectedJob = selectedJobId ? jobsById[selectedJobId] : undefined
+  const knownSourcePath = knownSelectedJob?.source_path ?? knownSelectedJob?.filename
+  const knownFilename = knownSelectedJob?.filename
 
-  // Light polling just for header metadata (filename/class name/status) — the
-  // step graph and log both come from the live SSE stream above.
+  const trackedJobs = useMemo(() => {
+    if (batchJobs.length) return batchJobs
+    if (!selectedJobId) return []
+    return [
+      {
+        job_id: selectedJobId,
+        source_path: knownSourcePath ?? 'current-job',
+        filename: knownFilename ?? 'current-job',
+      },
+    ]
+  }, [batchJobs, knownFilename, knownSourcePath, selectedJobId])
+
+  const selectedJob = knownSelectedJob ?? null
+  const hasLiveJob = Boolean(selectedJobId)
+
+  // Poll all submitted files for the explorer and aggregate codebase status.
+  // The selected file's detailed stream still comes from SSE below.
   useEffect(() => {
-    if (!jobId) return
+    const ids = trackedJobs.map((j) => j.job_id)
+    if (!ids.length) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
+
     async function poll() {
       try {
-        const j = await getJob(jobId!)
+        const jobs = await Promise.all(ids.map((id) => getJob(id)))
         if (cancelled) return
-        setJob(j)
-        if (!TERMINAL.has(j.status)) timer = setTimeout(poll, 2000)
+        setJobsById((prev) => {
+          const next = { ...prev }
+          for (const j of jobs) next[j.job_id] = j
+          return next
+        })
+        if (jobs.some((j) => !TERMINAL.has(j.status))) timer = setTimeout(poll, 1500)
       } catch {
-        /* header metadata is best-effort */
+        if (!cancelled) timer = setTimeout(poll, 2500)
       }
     }
+
     poll()
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [jobId])
+  }, [trackedJobs])
+
+  const batchStats = useMemo(() => {
+    const total = trackedJobs.length
+    const jobs = trackedJobs.map((j) => jobsById[j.job_id])
+    const completed = jobs.filter((j) => j && j.status === 'completed').length
+    const warned = jobs.filter((j) => j && j.status === 'completed_with_warnings').length
+    const failed = jobs.filter((j) => j && j.status === 'failed').length
+    const running = jobs.filter((j) => j && j.status === 'running').length
+    const queued = total - completed - warned - failed - running
+    const terminal = total > 0 && completed + warned + failed === total
+    const label =
+      total === 0
+        ? 'No active codebase run'
+        : terminal
+          ? failed
+            ? `Codebase failed: ${failed}/${total} files`
+            : warned
+              ? `Codebase completed with warnings: ${completed + warned}/${total}`
+              : `Codebase verified: ${completed}/${total}`
+          : `Codebase running: ${completed + warned + failed}/${total} files done`
+    return { total, completed, warned, failed, running, queued, terminal, label }
+  }, [jobsById, trackedJobs])
 
   const lines: LogLine[] = useMemo(() => {
-    if (!live) return TELEMETRY_SEED.map((l) => ({ ...l }) as LogLine)
+    if (!hasLiveJob) return TELEMETRY_SEED.map((l) => ({ ...l }) as LogLine)
+    if (!events.length) {
+      return [
+        {
+          ts: formatClock(Date.now() / 1000),
+          text: selectedJobId ? 'Waiting for telemetry stream...' : 'Select a file to view telemetry.',
+          tone: 'dim',
+        },
+      ]
+    }
     return events.map((e) => ({
       ts: formatClock(e.ts),
       text: e.message,
@@ -63,10 +131,10 @@ export function PipelinePage() {
             ? 'accent'
             : 'dim',
     }))
-  }, [events, live])
+  }, [events, hasLiveJob, selectedJobId])
 
   const states: Record<string, StepState> = useMemo(() => {
-    if (!live) return SEED_STATES
+    if (!hasLiveJob) return SEED_STATES
     const next: Record<string, StepState> = {}
     for (const step of PIPELINE_STEPS) next[step.agent] = 'pending'
     for (const e of events) {
@@ -76,18 +144,19 @@ export function PipelinePage() {
       if (e.type === 'agent_started') next[key] = 'active'
       if (e.type === 'agent_finished') next[key] = 'done'
     }
+    if (!events.length && selectedJob?.status === 'queued') next.PARSER = 'pending'
     return next
-  }, [events, live])
+  }, [events, hasLiveJob, selectedJob?.status])
 
   const retry = useMemo(() => {
-    if (!live) return PIPELINE_BATCH.retry_note
+    if (!hasLiveJob) return PIPELINE_BATCH.retry_note
     const last = [...events]
       .reverse()
       .find((e) => e.type === 'retry_scheduled' || e.type === 'decision')
     return last?.message ?? null
-  }, [events, live])
+  }, [events, hasLiveJob])
 
-  const retryLabel = live
+  const retryLabel = hasLiveJob
     ? (() => {
         const r = [...events].reverse().find((e) => e.type === 'retry_scheduled')
         const count = (r?.data as { retry_count?: number })?.retry_count
@@ -96,35 +165,70 @@ export function PipelinePage() {
       })()
     : PIPELINE_BATCH.retry_cycle
 
-  const source = live ? job?.filename ?? '…' : PIPELINE_BATCH.source
-  const target = live
-    ? job?.result?.class_name
-      ? `${job.result.class_name}.java`
+  const source = hasLiveJob ? selectedJob?.source_path ?? selectedJob?.filename ?? '…' : PIPELINE_BATCH.source
+  const target = hasLiveJob
+    ? selectedJob?.result?.class_name
+      ? `${selectedJob.result.class_name}.java`
       : '…'
     : PIPELINE_BATCH.target
-  const statusLabel = live ? (job ? job.status.toUpperCase().replace(/_/g, ' ') : 'RUNNING') : 'ACTIVE'
+  const fileStatusLabel = hasLiveJob ? statusLabel(selectedJob?.status ?? 'queued') : 'ACTIVE'
 
   return (
     <div className="app">
       <TopNav
         right={
-          live ? (
-            <>
-              <span>JOB {jobId?.slice(0, 8)}</span>
-              <span>JVM 21 TARGET</span>
-            </>
-          ) : (
-            <>
-              <span>{PIPELINE_BATCH.batch}</span>
-              <span>JVM 21 TARGET</span>
-              <span>DAEMON :8080</span>
-            </>
-          )
+          <>
+            <span className={batchStats.failed ? 'dot' : batchStats.terminal ? 'dot is-live' : 'dot'} />
+            <span>{batchStats.label}</span>
+            <span>JVM 21 TARGET</span>
+          </>
         }
       />
 
-      <div className="page">
-        <div className="page-inner">
+      <div className="pipeline-workspace">
+        <aside className="explorer pipeline-explorer">
+          <div className="explorer-search">
+            <span className="label">Codebase Pipeline</span>
+            <div className="pipeline-summary">
+              <b>{batchStats.total || 1} files</b>
+              <span className="meta">
+                {batchStats.completed} verified · {batchStats.warned} warnings · {batchStats.failed} failed · {batchStats.running + batchStats.queued} active
+              </span>
+            </div>
+          </div>
+
+          <div className="explorer-tree">
+            {trackedJobs.length ? (
+              trackedJobs.map((entry) => {
+                const job = jobsById[entry.job_id]
+                const active = entry.job_id === selectedJobId
+                const parts = entry.source_path.split('/')
+                const dirname = parts.length > 1 ? parts.slice(0, -1).join('/') : 'input'
+                return (
+                  <button
+                    key={entry.job_id}
+                    className={active ? 'pipeline-file-row is-active' : 'pipeline-file-row'}
+                    onClick={() => setActiveJobId(entry.job_id)}
+                  >
+                    <span className="pipeline-file-path">
+                      <span className="meta">{dirname}/</span>
+                      <b>{entry.filename}</b>
+                    </span>
+                    <span className={`pipeline-status ${statusTone(job?.status)}`}>
+                      {statusLabel(job?.status)}
+                    </span>
+                  </button>
+                )
+              })
+            ) : (
+              <p className="meta explorer-status">
+                Start a conversion from Workspace to track every selected file here.
+              </p>
+            )}
+          </div>
+        </aside>
+
+        <main className="pipeline-main">
           <section className="pipeline-active">
             <div className="pipeline-filebar">
               <h2 className="pipeline-title">
@@ -133,13 +237,13 @@ export function PipelinePage() {
                 <b>{target}</b>
               </h2>
               <div className="pipeline-filemeta">
-                {!live ? (
+                {!hasLiveJob ? (
                   <>
                     <span>{PIPELINE_BATCH.loc}</span>
                     <span>{PIPELINE_BATCH.dialect}</span>
                   </>
                 ) : null}
-                <span className="is-accent">{statusLabel}</span>
+                <span className="is-accent">{fileStatusLabel}</span>
               </div>
             </div>
 
@@ -170,7 +274,7 @@ export function PipelinePage() {
             </header>
             <ExecutionLog lines={lines} wrap={wrap} autoscroll={autoscroll} />
           </section>
-        </div>
+        </main>
       </div>
     </div>
   )
