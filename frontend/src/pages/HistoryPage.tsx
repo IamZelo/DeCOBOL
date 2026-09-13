@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getJob, listJobs } from '../api/client'
 import { TopNav } from '../components/TopNav'
+import { useConversion } from '../hooks/useConversion'
 import { formatSeconds, formatTimestamp } from '../lib/format'
 import type { JobSummary } from '../types'
 
@@ -14,6 +15,7 @@ interface EnrichedRow extends JobSummary {
 
 export function HistoryPage() {
   const navigate = useNavigate()
+  const { setActiveJobId } = useConversion()
   const [tab, setTab] = useState<Tab>('all')
   const [query, setQuery] = useState('')
   const [rows, setRows] = useState<EnrichedRow[]>([])
@@ -97,6 +99,16 @@ export function HistoryPage() {
     { id: 'successful', label: `Successful (${totals.successful})` },
     { id: 'retried', label: `Retried (${totals.retried})` },
   ]
+
+  function openJob(row: EnrichedRow, route: '/diff' | '/pipeline') {
+    const sourcePath = row.source_path ?? row.filename ?? row.job_id
+    setActiveJobId(row.job_id, {
+      job_id: row.job_id,
+      source_path: sourcePath,
+      filename: row.filename ?? sourcePath.split('/').pop() ?? row.job_id,
+    })
+    navigate(route)
+  }
 
   return (
     <div className="app">
@@ -185,8 +197,8 @@ export function HistoryPage() {
                       </td>
                       <td className="is-right">
                         <div className="audit-actions">
-                          <button onClick={() => navigate('/diff')}>Diff</button>
-                          <button onClick={() => navigate('/pipeline')}>Log</button>
+                          <button onClick={() => openJob(row, '/diff')}>Diff</button>
+                          <button onClick={() => openJob(row, '/pipeline')}>Log</button>
                         </div>
                       </td>
                     </tr>

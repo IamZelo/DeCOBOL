@@ -44,7 +44,9 @@ export function PipelinePage() {
   const knownFilename = knownSelectedJob?.filename
 
   const trackedJobs = useMemo(() => {
-    if (batchJobs.length) return batchJobs
+    if (batchJobs.length && batchJobs.some((j) => j.job_id === selectedJobId)) {
+      return batchJobs
+    }
     if (!selectedJobId) return []
     return [
       {

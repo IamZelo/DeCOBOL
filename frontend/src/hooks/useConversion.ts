@@ -31,7 +31,7 @@ interface ConversionState {
   setRuntime: (value: TargetRuntime) => void
   setPrecision: (value: PrecisionMode) => void
   setConfirmLocal: (value: boolean) => void
-  setActiveJobId: (jobId: string) => void
+  setActiveJobId: (jobId: string, batchJob?: ConversionBatchJob) => void
   /** Submits one /api/convert job per selected path and keeps the full batch. */
   startConversion: (sourcePaths: string[]) => Promise<string | null>
 }
@@ -93,10 +93,11 @@ export function ConversionProvider({ children }: { children: ReactNode }) {
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const setActiveJobId = useCallback(
-    (id: string) => {
+    (id: string, batchJob?: ConversionBatchJob) => {
+      if (batchJob) setBatchJobs([batchJob])
       setJobId(id)
     },
-    [setJobId],
+    [setBatchJobs, setJobId],
   )
 
   const startConversion = useCallback(
