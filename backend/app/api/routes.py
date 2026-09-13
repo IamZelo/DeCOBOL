@@ -190,6 +190,25 @@ def fs_file():
     return jsonify(res.data)
 
 
+@api_bp.route("/fs/graph", methods=["GET"])
+def fs_graph():
+    """Repo-wide dependency graph for every COBOL file under the workspace.
+
+    Drives the workspace dependency graph, which must render before any
+    conversion job exists — so it parses the files directly instead of
+    reading a job's AST.
+    """
+    path = request.args.get("path", "")
+    root = request.args.get("root", "input")
+    recursive = request.args.get("recursive", "true").lower() != "false"
+
+    from app.tools.registry import call_tool
+    res = call_tool("scan_workspace_graph", path=path, root=root, recursive=recursive)
+    if not res.success:
+        return jsonify({"error": res.error}), 400
+    return jsonify(res.data)
+
+
 # ---------------------------------------------------------------------------
 # Conversion Jobs
 # ---------------------------------------------------------------------------

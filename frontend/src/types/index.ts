@@ -228,3 +228,47 @@ export interface FsFile {
   content: string
   size: number
 }
+
+/**
+ * `GET /api/fs/graph` — the repo-wide dependency scan
+ * (docs/LOCAL_DEPLOYMENT_WORKFLOW.md, additive). Unlike `parsed_ast` on a job,
+ * this exists before any conversion runs: it is what the workspace graph
+ * initialises from.
+ */
+export type RepoNodeKind =
+  | 'program'
+  | 'copybook'
+  | 'missing_program'
+  | 'missing_copybook'
+  | 'table'
+  | 'dataset'
+
+export type RepoEdgeKind = 'call' | 'copy' | 'sql' | 'file'
+
+export interface RepoGraphNode {
+  id: string
+  kind: RepoNodeKind
+  label: string
+  sublabel?: string
+  in_repo: boolean
+  /** Relative path under the input root; null for synthetic nodes. */
+  path: string | null
+  meta?: { paragraphs?: number; variables?: number; lines?: number }
+}
+
+export interface RepoGraphEdge {
+  from: string
+  to: string
+  kind: RepoEdgeKind
+  label?: string
+}
+
+export interface RepoGraphPayload {
+  root: string
+  path: string
+  recursive: boolean
+  nodes: RepoGraphNode[]
+  edges: RepoGraphEdge[]
+  file_count: number
+  parse_errors: { path: string; error: string }[]
+}

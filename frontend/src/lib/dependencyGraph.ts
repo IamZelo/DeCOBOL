@@ -1,6 +1,13 @@
 import type { ParsedAst } from '../types'
 
-export type GraphNodeKind = 'program' | 'paragraph' | 'copybook' | 'file' | 'table'
+export type GraphNodeKind =
+  | 'program'
+  | 'paragraph'
+  | 'copybook'
+  | 'file'
+  | 'table'
+  /** A merge point where a fan-in of edges collapses to one line. */
+  | 'junction'
 
 /**
  * Visual category, independent of `kind`: `agent` marks a paragraph the
@@ -8,7 +15,13 @@ export type GraphNodeKind = 'program' | 'paragraph' | 'copybook' | 'file' | 'tab
  * fallback); `external` covers everything the program reaches outside its
  * own procedure division — copybooks, files, SQL tables.
  */
-export type GraphNodeCategory = 'standard' | 'agent' | 'external'
+export type GraphNodeCategory =
+  | 'standard'
+  | 'agent'
+  | 'external'
+  | 'copybook'
+  | 'missing'
+  | 'data'
 
 export interface GraphNode {
   id: string
@@ -20,12 +33,23 @@ export interface GraphNode {
   y: number
   w: number
   h: number
+  /** Repo graph only: the file currently open in the workspace. */
+  active?: boolean
 }
 
 export interface GraphEdge {
   from: string
   to: string
   kind: 'contains' | 'performs' | 'copy' | 'file' | 'sql'
+  /** Optional edge annotation (COPY mechanism, file operations). */
+  label?: string
+  /** Handle ids — 'sr'/'sb' to leave right/bottom, 'tl'/'tt' to enter left/top. */
+  sourceHandle?: 'sr' | 'sb'
+  targetHandle?: 'tl' | 'tt'
+  /** A hop into a junction: drawn without an arrow head. */
+  merged?: boolean
+  /** Distance to run straight out of the source handle before the first bend. */
+  offset?: number
 }
 
 export interface DependencyGraph {

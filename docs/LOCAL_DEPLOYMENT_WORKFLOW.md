@@ -179,11 +179,30 @@ COBOL repo is ever touched, which matters for a bank's change-control process.
 |---|---|---|
 | `GET` | `/api/fs/tree?path=&root=input\|output` | List a directory under the mounted root, for the folder-tree UI |
 | `GET` | `/api/fs/file?path=&root=input\|output` | Read one file's contents (for preview / diff view) |
+| `GET` | `/api/fs/graph?path=&root=input&recursive=true` | Parse every COBOL file under the root into a repo-wide dependency graph |
 | `POST` | `/api/convert` | *(existing, extended)* accepts `source_path` as an alternative to `cobol_code` |
 | `POST` | `/api/convert/batch` | New: `source_dir` + `recursive` → fans out to one job per file |
 
-All four are additive per CONTRACTS.md §0 — no existing field is renamed, removed, or retyped, so
+All five are additive per CONTRACTS.md §0 — no existing field is renamed, removed, or retyped, so
 this doesn't require a contract version bump, just new sections once implemented.
+
+### `GET /api/fs/graph`
+
+Backs the workspace dependency graph, which has to render **before any conversion job exists** —
+so it parses the files itself (`scan_workspace_graph`) instead of reading a job's `parsed_ast`.
+One node per COBOL file, plus synthetic nodes for what the workspace does not contain:
+
+| Node id | Meaning |
+|---|---|
+| `file:<relpath>` | A `.cbl`/`.cob`/`.cpy` file under the input root |
+| `program:<NAME>` | A `CALL` target with no matching `PROGRAM-ID` in the workspace (or a dynamic `CALL`) |
+| `copybook:<MEMBER>` | A `COPY` / `EXEC SQL INCLUDE` member with no matching `.cpy` — the normal Lendwise case |
+| `table:<NAME>` | A DB2 table, shared by every program that touches it |
+| `dataset:<DDNAME>` | A `SELECT ... ASSIGN TO` DD name, shared by producer and consumer |
+
+Edge `kind` is one of `call`, `copy`, `sql`, `file`. A read-only dataset edge points *into* the
+program (`dataset:X -> file:y.cbl`) so a file one program writes and another reads reads left to
+right. A file that fails to parse lands in `parse_errors` and does not sink the rest of the scan.
 
 ## Why not the alternatives
 

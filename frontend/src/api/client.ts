@@ -1,4 +1,12 @@
-import type { ConvertOptions, FsFile, FsTree, Health, Job, JobSummary } from '../types'
+import type {
+  ConvertOptions,
+  FsFile,
+  FsTree,
+  Health,
+  Job,
+  JobSummary,
+  RepoGraphPayload,
+} from '../types'
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
@@ -31,6 +39,16 @@ export function getFsTree(path = '', root: 'input' | 'output' = 'input') {
 export function getFsFile(path: string, root: 'input' | 'output' = 'input') {
   const qs = new URLSearchParams({ path, root })
   return get<FsFile>(`/api/fs/file?${qs}`)
+}
+
+/**
+ * `GET /api/fs/graph` — parses every COBOL file under the workspace and
+ * returns the cross-file dependency graph (docs/LOCAL_DEPLOYMENT_WORKFLOW.md,
+ * additive).
+ */
+export function getFsGraph(path = '', root: 'input' | 'output' = 'input', recursive = true) {
+  const qs = new URLSearchParams({ path, root, recursive: String(recursive) })
+  return get<RepoGraphPayload>(`/api/fs/graph?${qs}`)
 }
 
 type ConvertRequest =

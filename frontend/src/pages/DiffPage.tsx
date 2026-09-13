@@ -8,19 +8,30 @@ import { StructureView } from '../components/StructureView'
 import { TopNav } from '../components/TopNav'
 import { ValidationReport } from '../components/ValidationReport'
 import { useConversion } from '../hooks/useConversion'
-import { buildDependencyGraph } from '../lib/dependencyGraph'
+import { useRepoGraph } from '../hooks/useRepoGraph'
+import { buildDependencyGraph, type GraphNodeCategory } from '../lib/dependencyGraph'
 import { buildDiffLines } from '../lib/diff'
 import { formatTimestamp } from '../lib/format'
 import type { Job } from '../types'
 
 const TERMINAL = new Set(['completed', 'completed_with_warnings', 'failed'])
 
-const LEGEND: { swatch: string; label: string }[] = [
+const PROGRAM_LEGEND: { swatch: string; label: string }[] = [
   { swatch: 'var(--accent)', label: 'PERFORM (call graph)' },
   { swatch: 'var(--accent-yellow)', label: 'COPY / EXEC SQL INCLUDE' },
   { swatch: 'var(--accent-cyan)', label: 'File I/O' },
   { swatch: 'var(--accent-green)', label: 'SQL table' },
 ]
+
+const REPO_LEGEND: { swatch: string; label: string }[] = [
+  { swatch: 'var(--accent)', label: 'CALL (program \u2192 subprogram)' },
+  { swatch: 'var(--accent-yellow)', label: 'COPY / EXEC SQL INCLUDE' },
+  { swatch: 'var(--accent-cyan)', label: 'File I/O (DD name)' },
+  { swatch: 'var(--accent-green)', label: 'DB2 table' },
+]
+
+/** Whole-workspace graph, or just this program's internals. */
+type GraphScope = 'workspace' | 'program'
 
 type Tab = 'structure' | 'code' | 'graph'
 
@@ -42,10 +53,43 @@ function statusTone(status: string | undefined) {
   return ''
 }
 
+function GraphLegend({
+  categories,
+  edges,
+}: {
+  categories: GraphNodeCategory[]
+  edges: { swatch: string; label: string }[]
+}) {
+  return (
+    <>
+      <div className="depgraph-legend">
+        {categories.map((key) => (
+          <span className="depgraph-legend-item" key={key}>
+            <span
+              className="depgraph-swatch is-outline"
+              style={{ borderColor: CATEGORY_STYLE[key].stroke }}
+            />
+            {CATEGORY_STYLE[key].label}
+          </span>
+        ))}
+      </div>
+      <div className="depgraph-legend">
+        {edges.map((item) => (
+          <span className="depgraph-legend-item" key={item.label}>
+            <span className="depgraph-swatch" style={{ background: item.swatch }} />
+            {item.label}
+          </span>
+        ))}
+      </div>
+    </>
+  )
+}
+
 export function DiffPage() {
   const { jobId, batchJobs, setActiveJobId } = useConversion()
   const [tab, setTab] = useState<Tab>('structure')
   const [mode, setMode] = useState<'split' | 'unified'>('split')
+  const [graphScope, setGraphScope] = useState<GraphScope>('workspace')
   const [jobsById, setJobsById] = useState<Record<string, Job>>({})
   const [error, setError] = useState<string | null>(null)
 
@@ -107,6 +151,14 @@ export function DiffPage() {
     () => (ast ? buildDependencyGraph(ast, agentRefactored) : null),
     [ast, agentRefactored],
   )
+
+  // The workspace-wide scan is independent of this job: it covers every COBOL
+  // file under the input root, with this job's file highlighted.
+  const {
+    graph: repoGraph,
+    loading: repoLoading,
+    error: repoError,
+  } = useRepoGraph(job?.source_path ?? null)
 
   const sourceLines = useMemo(
     () => (job?.raw_cobol ? buildDiffLines(job.raw_cobol, findings, 'cobol') : []),
@@ -308,40 +360,64 @@ export function DiffPage() {
           ) : null}
 
           {tab === 'graph' ? (
-            graph ? (
-              <>
-                <div className="depgraph-legend">
-                  {(Object.keys(CATEGORY_STYLE) as (keyof typeof CATEGORY_STYLE)[]).map((key) => (
-                    <span className="depgraph-legend-item" key={key}>
-                      <span
-                        className="depgraph-swatch is-outline"
-                        style={{ borderColor: CATEGORY_STYLE[key].stroke }}
-                      />
-                      {CATEGORY_STYLE[key].label}
-                    </span>
-                  ))}
-                </div>
-                <div className="depgraph-legend">
-                  {LEGEND.map((item) => (
-                    <span className="depgraph-legend-item" key={item.label}>
-                      <span className="depgraph-swatch" style={{ background: item.swatch }} />
-                      {item.label}
-                    </span>
-                  ))}
-                </div>
-                <div className="panel depgraph-panel">
-                  <DependencyGraphView graph={graph} />
-                </div>
-                <div className="depgraph-footer">
-                  <span className="meta">
-                    Last synced: {job.finished_ts ? formatTimestamp(job.finished_ts) : '—'}
-                  </span>
-                  <span className="meta">Workspace: {job.source_path ?? '(inline)'}</span>
-                </div>
-              </>
-            ) : (
-              <p className="meta">No AST available for this job.</p>
-            )
+            <>
+              <div className="analysis-tabs is-sub">
+                <button
+                  className={graphScope === 'workspace' ? 'analysis-tab is-on' : 'analysis-tab'}
+                  onClick={() => setGraphScope('workspace')}
+                >
+                  Workspace
+                  {repoGraph ? ` (${repoGraph.fileCount} files)` : ''}
+                </button>
+                <button
+                  className={graphScope === 'program' ? 'analysis-tab is-on' : 'analysis-tab'}
+                  onClick={() => setGraphScope('program')}
+                >
+                  This program
+                </button>
+              </div>
+
+              {graphScope === 'workspace' ? (
+                repoError ? (
+                  <p className="meta is-error">Couldn&rsquo;t scan the workspace: {repoError}</p>
+                ) : repoLoading && !repoGraph ? (
+                  <p className="meta">Parsing every COBOL file under the input root&hellip;</p>
+                ) : repoGraph && repoGraph.nodes.length > 0 ? (
+                  <>
+                    <GraphLegend
+                      categories={repoGraph.categories}
+                      edges={REPO_LEGEND.filter((_, i) =>
+                        repoGraph.edgeKinds.includes((['call', 'copy', 'file', 'sql'] as const)[i]),
+                      )}
+                    />
+                    <div className="panel depgraph-panel">
+                      <DependencyGraphView graph={repoGraph} />
+                    </div>
+                  </>
+                ) : (
+                  <p className="meta">No COBOL files found under the input root.</p>
+                )
+              ) : graph ? (
+                <>
+                  <GraphLegend
+                    categories={[...new Set(graph.nodes.map((n) => n.category))]}
+                    edges={PROGRAM_LEGEND}
+                  />
+                  <div className="panel depgraph-panel">
+                    <DependencyGraphView graph={graph} />
+                  </div>
+                </>
+              ) : (
+                <p className="meta">No AST available for this job.</p>
+              )}
+
+              <div className="depgraph-footer">
+                <span className="meta">
+                  Last synced: {job.finished_ts ? formatTimestamp(job.finished_ts) : '\u2014'}
+                </span>
+                <span className="meta">Workspace: {job.source_path ?? '(inline)'}</span>
+              </div>
+            </>
           ) : null}
 
           {tab !== 'graph' ? <ValidationReport findings={findings} equivalence={equivalence} /> : null}

@@ -269,6 +269,42 @@
   flex-direction: column;
 }
 
+/* Graph / Source switch in the workspace file bar. */
+.workspace-view-tabs {
+  display: flex;
+  align-items: center;
+}
+
+.workspace-view-tabs .analysis-tab {
+  padding: 0 0 2px;
+  margin-right: 0;
+  margin-left: 24px;
+  font-size: 12px;
+}
+
+/* The graph view manages its own scroll: the legend stays put and React Flow
+   takes the remaining height, so the canvas never spills past the viewport. */
+.workspace-viewer.is-graph {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px 24px;
+  gap: 0;
+}
+
+.workspace-viewer.is-graph .depgraph-flow {
+  flex: 1;
+  height: auto;
+  min-height: 320px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+}
+
+.workspace-graph-warning {
+  padding-top: 12px;
+  color: var(--accent-yellow);
+}
+
 .workspace-filebar {
   flex: none;
   display: flex;
@@ -926,6 +962,18 @@
   color: var(--text);
   font-weight: 700;
   border-bottom-color: var(--accent);
+}
+
+/* Scope switch inside the Dependency Graph tab — lighter than the page tabs. */
+.analysis-tabs.is-sub {
+  border-bottom: none;
+  margin-top: 16px;
+  margin-bottom: -8px;
+}
+
+.analysis-tabs.is-sub .analysis-tab {
+  font-size: 12px;
+  padding: 6px 4px;
 }
 
 .depgraph-footer {
@@ -1634,6 +1682,8 @@
 }
 
 .depgraph-flow .react-flow__minimap {
+  width: 150px;
+  height: 104px;
   border-radius: 4px;
   border: 1px solid var(--line);
 }
@@ -1646,6 +1696,15 @@
   font-family: var(--mono);
   cursor: pointer;
   transition: border-width 120ms ease;
+}
+
+.depgraph-junction {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border: 2px solid;
+  border-radius: 50%;
+  background: var(--bg-panel);
 }
 
 .depgraph-node-label {

@@ -16,3 +16,4 @@ from . import java_template  # noqa: F401
 from . import semantic_checks  # noqa: F401
 from . import semantic_fixes  # noqa: F401
 from . import type_mapper  # noqa: F401
+from . import workspace_graph  # noqa: F401
