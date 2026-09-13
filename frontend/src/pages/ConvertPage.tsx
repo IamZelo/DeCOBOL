@@ -15,11 +15,6 @@ const PRECISIONS: { id: PrecisionMode; title: string; note: string }[] = [
     title: 'Strict BigDecimal (DECIMAL128)',
     note: 'Zero precision loss. Mainframe truncate and half-adjust rules.',
   },
-  {
-    id: 'native',
-    title: 'Native Primitives (double / long)',
-    note: 'High throughput. Non-financial workflows only.',
-  },
 ]
 
 export function ConvertPage() {

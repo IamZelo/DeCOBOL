@@ -30,28 +30,63 @@ const TABS: { id: Tab; label: string; icon: () => JSX.Element }[] = [
   { id: 'graph', label: 'Dependency Graph', icon: IconGraph },
 ]
 
+function statusLabel(status: string | undefined) {
+  return (status ?? 'queued').toUpperCase().replace(/_/g, ' ')
+}
+
+function statusTone(status: string | undefined) {
+  if (status === 'completed') return 'is-ok'
+  if (status === 'completed_with_warnings') return 'is-warn'
+  if (status === 'failed') return 'is-error'
+  if (status === 'running') return 'is-live'
+  return ''
+}
+
 export function DiffPage() {
-  const { jobId } = useConversion()
+  const { jobId, batchJobs, setActiveJobId } = useConversion()
   const [tab, setTab] = useState<Tab>('structure')
   const [mode, setMode] = useState<'split' | 'unified'>('split')
-  const [job, setJob] = useState<Job | null>(null)
+  const [jobsById, setJobsById] = useState<Record<string, Job>>({})
   const [error, setError] = useState<string | null>(null)
 
+  const knownSelectedJob = jobId ? jobsById[jobId] : undefined
+  const knownSourcePath = knownSelectedJob?.source_path ?? knownSelectedJob?.filename
+  const knownFilename = knownSelectedJob?.filename
+
+  const trackedJobs = useMemo(() => {
+    if (batchJobs.length) return batchJobs
+    if (!jobId) return []
+    return [
+      {
+        job_id: jobId,
+        source_path: knownSourcePath ?? 'current-job',
+        filename: knownFilename ?? 'current-job',
+      },
+    ]
+  }, [batchJobs, jobId, knownFilename, knownSourcePath])
+
   useEffect(() => {
-    if (!jobId) return
+    const ids = trackedJobs.map((j) => j.job_id)
+    if (!ids.length) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
 
     async function poll() {
       try {
-        const j = await getJob(jobId!)
+        const jobs = await Promise.all(ids.map((id) => getJob(id)))
         if (cancelled) return
-        setJob(j)
-        if (!TERMINAL.has(j.status)) {
-          timer = setTimeout(poll, 1500)
-        }
+        setError(null)
+        setJobsById((prev) => {
+          const next = { ...prev }
+          for (const j of jobs) next[j.job_id] = j
+          return next
+        })
+        if (jobs.some((j) => !TERMINAL.has(j.status))) timer = setTimeout(poll, 1500)
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err))
+          timer = setTimeout(poll, 2500)
+        }
       }
     }
     poll()
@@ -60,7 +95,9 @@ export function DiffPage() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [jobId])
+  }, [trackedJobs])
+
+  const job = knownSelectedJob ?? null
 
   const findings = job?.result?.validation?.findings ?? []
   const ast = job?.result?.parsed_ast
@@ -111,33 +148,64 @@ export function DiffPage() {
     )
   }
 
-  if (error) {
-    return (
-      <div className="app">
-        <TopNav />
-        <div className="page">
-          <div className="page-inner">
-            <p className="meta is-error">{error}</p>
-          </div>
+  const explorer = (
+    <aside className="explorer pipeline-explorer">
+      <div className="explorer-search">
+        <span className="label">Codebase Analysis</span>
+        <div className="pipeline-summary">
+          <b>{trackedJobs.length || 1} files</b>
+          <span className="meta">Select a file to inspect its structure, code, and graph.</span>
         </div>
       </div>
-    )
-  }
 
-  if (!job || !TERMINAL.has(job.status)) {
+      <div className="explorer-tree">
+        {trackedJobs.map((entry) => {
+          const item = jobsById[entry.job_id]
+          const active = entry.job_id === jobId
+          const parts = entry.source_path.split('/')
+          const dirname = parts.length > 1 ? parts.slice(0, -1).join('/') : 'input'
+          return (
+            <button
+              key={entry.job_id}
+              className={active ? 'pipeline-file-row is-active' : 'pipeline-file-row'}
+              onClick={() => setActiveJobId(entry.job_id)}
+            >
+              <span className="pipeline-file-path">
+                <span className="meta">{dirname}/</span>
+                <b>{entry.filename}</b>
+              </span>
+              <span className={`pipeline-status ${statusTone(item?.status)}`}>
+                {statusLabel(item?.status)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </aside>
+  )
+
+  if (error || !job || !TERMINAL.has(job.status)) {
     return (
       <div className="app">
         <TopNav />
-        <div className="page">
-          <div className="page-inner">
-            <p className="meta">
-              Conversion still running —{' '}
-              <Link to="/pipeline" className="path-accent">
-                watch it on Pipeline
-              </Link>
-              .
-            </p>
-          </div>
+        <div className="analysis-workspace">
+          {explorer}
+          <main className="analysis-main">
+            <div className="page is-wide">
+              <div className="page-inner is-wide">
+                {error ? <p className="meta is-error">{error}</p> : null}
+                {!error ? (
+                  <p className="meta">
+                    {job ? 'Conversion still running' : 'Loading analysis'} —{' '}
+                    <Link to="/pipeline" className="path-accent">
+                      watch it on Pipeline
+                    </Link>
+                    .
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </main>
         </div>
       </div>
     )
@@ -149,28 +217,32 @@ export function DiffPage() {
     <div className="app">
       <TopNav />
 
-      <div className="analysis-topbar">
-        <div className="analysis-breadcrumb">
-          <IconFile />
-          <Link to="/workspace" className="meta">
-            {job.source_path ? job.source_path.split('/').slice(0, -1).join('/') || 'src' : 'src'}
-          </Link>
-          <span className="meta">/</span>
-          <b>{job.filename ?? 'source.cbl'}</b>
-        </div>
-        <div className="analysis-status">
-          <span className={job.result?.validation?.passed === false ? 'dot' : 'dot is-live'} />
-          <span className="meta">
-            {job.status === 'completed_with_warnings' ? 'Completed with warnings' : job.status.replace(/_/g, ' ')}
-          </span>
-          <Link to="/convert" className="btn-primary btn-compact">
-            Run Conversion
-          </Link>
-        </div>
-      </div>
+      <div className="analysis-workspace">
+        {explorer}
 
-      <div className="page is-wide">
-        <div className="page-inner is-wide">
+        <main className="analysis-main">
+          <div className="analysis-topbar">
+            <div className="analysis-breadcrumb">
+              <IconFile />
+              <Link to="/workspace" className="meta">
+                {job.source_path ? job.source_path.split('/').slice(0, -1).join('/') || 'src' : 'src'}
+              </Link>
+              <span className="meta">/</span>
+              <b>{job.filename ?? 'source.cbl'}</b>
+            </div>
+            <div className="analysis-status">
+              <span className={job.result?.validation?.passed === false ? 'dot' : 'dot is-live'} />
+              <span className="meta">
+                {job.status === 'completed_with_warnings' ? 'Completed with warnings' : job.status.replace(/_/g, ' ')}
+              </span>
+              <Link to="/convert" className="btn-primary btn-compact">
+                Run Conversion
+              </Link>
+            </div>
+          </div>
+
+          <div className="page is-wide">
+            <div className="page-inner is-wide">
           <div className="page-lead">
             <h1 className="h1">{job.filename ?? 'Program'} Analysis</h1>
             <p>
@@ -273,8 +345,10 @@ export function DiffPage() {
           ) : null}
 
           {tab !== 'graph' ? <ValidationReport findings={findings} equivalence={equivalence} /> : null}
+            </div>
+          </div>
+        </main>
         </div>
-      </div>
     </div>
   )
 }
